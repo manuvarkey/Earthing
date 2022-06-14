@@ -23,7 +23,7 @@ A python library for design of earthing networks in electrical substations.
 
 ## Usage
 
-Package is available on PyPI for installation (![https://pypi.org/project/earthing](https://pypi.org/project/earthing/)). Use `pip install earthing` to install.
+Package is available on PyPI for installation ([https://pypi.org/project/earthing](https://pypi.org/project/earthing/)). Use `pip install earthing` to install.
 
 Program source includes detailed usage instructions for various functions and classes. Alternately project page has ipython notebooks covering typical use cases. 
 
