@@ -21,12 +21,16 @@ A python library for design of earthing networks in electrical substations.
 ![Step voltage profile](https://github.com/manuvarkey/Earthing/raw/main/images/Figure_5.png)
 
 
-## Installation
+## Usage
 
-Clone this repository and open the provided ipython notebooks. Program source includes detailed usage instructions for various functions and classes.
+Package is available on PyPI for installation (![https://pypi.org/project/earthing](https://pypi.org/project/earthing/)). Use `pip install earthing` to install.
+
+Program source includes detailed usage instructions for various functions and classes. Alternately project page has ipython notebooks covering typical use cases. 
 
 
 ## Dependencies:
 
 * Python 3
 * Numpy
+* Matplotlib
+
