@@ -21,10 +21,12 @@
 #
 
 from math import *
+
 import numpy as np
-from  numpy.linalg import inv, norm, solve
+from numpy.linalg import inv, norm, solve
 
 import matplotlib.pyplot as plt
+from matplotlib import path
 from mpl_toolkits.mplot3d import axes3d
 from matplotlib import cm
 
@@ -33,6 +35,7 @@ from matplotlib import cm
     
 def resistance_plate(rho, A, h):
     """ As per ENA EREC S34
+    
         rho: resistivity (ohm-m)
         A: plate area (m^2)
         h = burrial depth
@@ -42,6 +45,7 @@ def resistance_plate(rho, A, h):
 
 def resistance_pipe(rho, L, d):
     """ As per IEEE 80
+    
         rho: resistivity (ohm-m)
         L: length of pipe (m)
         d: dia of pipe (m)
@@ -50,6 +54,7 @@ def resistance_pipe(rho, L, d):
 
 def resistance_strip(rho, L, w, t):
     """ Resistance calculation as per IS-3043
+    
         rho: resistivity (ohm-m)
         L: length of strip (m)
         w: depth of burial (m)
@@ -59,6 +64,7 @@ def resistance_strip(rho, L, w, t):
         
 def resistance_grid(rho, A, L, h=0.5):
     """ Return grid resistance as per IEEE 80
+    
         rho: resistivity (ohm-m)
         A: area occupied by the ground grid (m^2)
         L: total buried length of conductors (m)
@@ -68,6 +74,7 @@ def resistance_grid(rho, A, L, h=0.5):
 
 def resistance_grid_with_rods(rho, A, L_E, L_R, N, S, d, w):
     """ Return grid resistance with earth rods as per ENA EREC S34
+    
         rho: resistivity (ohm-m)
         A: area occupied by the ground grid (m^2)
         L_E: length of horizontal electrode (m)
@@ -77,7 +84,8 @@ def resistance_grid_with_rods(rho, A, L_E, L_R, N, S, d, w):
         d: diameter of rod electrode
         w: width of tape
     """
-    data = np.array([[0,0], [4,2.6], [8,4.3], [12,5.3], [16,6], [20,6.5], [24,6.8], [40,8], [64,9]])
+    data = np.array([[0,0], [4,2.6], [8,4.3], [12,5.3], 
+                     [16,6], [20,6.5], [24,6.8], [40,8], [64,9]])
     fit = np.polyfit(data[:,0], data[:,1], 5)
     poly = np.poly1d(fit)
     k = poly(N)  # Use polynomial fit to get k
@@ -107,6 +115,7 @@ def resistance_parallel(*res):
 
 def e_step_70(rho, rho_s, h_s, t_s):
     """ Step potential calculation as per IEEE 80
+    
         rho: resistivity (ohm-m)
         rho_s: resistivity of surface layer (ohm-m)
         h_s = thickness of surface layer (m)
@@ -118,6 +127,7 @@ def e_step_70(rho, rho_s, h_s, t_s):
     
 def e_touch_70(rho, rho_s, h_s, t_s):
     """ Touch potential calculation as per IEEE 80
+    
         rho: resistivity (ohm-m)
         rho_s: resistivity of surface layer (ohm-m)
         h_s = thickness of surface layer (m)
@@ -150,7 +160,8 @@ def e_mesh_step_grid(rho, Lx, Ly, Lr, Nx, Ny, Nr, d, h, Ig):
     Lc = Lx*Nx + Ly*Ny  # Total length of horizontal conductor in the grid (m)
     L_R = Lr*Nr  # Total length of all earth rods (m)
     Lp = (Lx + Ly)*2  # Length of perimeter conductor (m)
-    D = ( (Lx/(Ny-1)) + (Ly/(Nx-1)) )/2  # Spacing between parallel conductors in the mesh (m)
+    D = ( (Lx/(Ny-1)) + (Ly/(Nx-1)) )/2  # Spacing between parallel conductors 
+                                         # in the mesh (m)
     h0 = 1  # Grid reference depth (m)
     
     # Grid shape components
@@ -167,7 +178,8 @@ def e_mesh_step_grid(rho, Lx, Ly, Lr, Nx, Ny, Nr, d, h, Ig):
         Kii = 1/(2*n)**(2/n)
     
     Ki = 0.644 + 0.148*n
-    Km = 1/(2*pi)*( log(D**2/(16*h*d) + (D+2*h)**2/(8*D*d) - h/(4*d)) + Kii/Kh*log(8/(pi*(2*n-1))) )
+    Km = 1/(2*pi)*( log(D**2/(16*h*d) + (D+2*h)**2/(8*D*d) - h/(4*d))  \
+                    + Kii/Kh*log(8/(pi*(2*n-1))) )
     Ks = 1/(pi)*( 1/(2*h) + 1/(D+h) + 1/D*(1-0.5**(n-2)) )
     
     Em = rho*Km*Ki*Ig/( Lc + (1.55 + 1.22*(Lr/sqrt(Lx**2+Ly**2)))*L_R )
@@ -180,6 +192,7 @@ def e_mesh_step_grid(rho, Lx, Ly, Lr, Nx, Ny, Nr, d, h, Ig):
 
 def fault_current(Un, c, Z):
     """ Fault current calculation as per IEC-60909
+    
         Un: Nominal line-line voltage (V)
         c: Voltage factor
         Z: Complex impedence
@@ -188,6 +201,7 @@ def fault_current(Un, c, Z):
 
 def max_current_density(rho, t):
     """ Electrode maximum current density calculation as per IS-3043
+    
         rho: resistivity (ohm-m)
         t: Loading time
         return (A/m2)
@@ -196,6 +210,7 @@ def max_current_density(rho, t):
 
 def current_ratio(rho, R, C, Un, A, L):
     """ Current ratio by C factor method as per ENA EREC S34
+    
         rho: resistivity (ohm-m)
         R: combined sorce and destination resistance
         C: C factor
@@ -235,14 +250,17 @@ class DescreteElementCylindrical(DescreteElement):
         DescreteElement.__init__(self, loc, rho)
         self.radius = radius
         self.length = length
-        self.crit_d = self.length  # Distance upto which radial current distribution holds
+        self.crit_d = self.length  # Distance upto which radial current 
+                                   # distribution holds
 
     def pot_coeff_self(self):
-        coeff = self.rho/(4*pi)*(1/self.crit_d + 2*log(self.crit_d/self.radius)/self.length)
+        coeff = self.rho/(4*pi)*(1/self.crit_d \
+                                 + 2*log(self.crit_d/self.radius)/self.length)
         return coeff
         
     def pot_coeff(self, loc, mirror=False):
-        crit_d = 2*self.length  # Distance upto which radial current distribution holds
+        crit_d = 2*self.length  # Distance upto which radial current 
+                                # distribution holds
         if mirror == False:
             dist = norm(loc - self.loc)
         else:
@@ -253,7 +271,8 @@ class DescreteElementCylindrical(DescreteElement):
         if dist <= self.radius:
             raise ValueError('Coordinates within element boundary')
         elif dist < self.crit_d:  # assume radial current distribution
-            coeff = self.rho/(4*pi)*(1/self.crit_d + 2*log(self.crit_d/dist)/self.length)
+            coeff = self.rho/(4*pi)*(1/self.crit_d \
+                                     + 2*log(self.crit_d/dist)/self.length)
         else:  # assume spherical current distribution
             coeff = self.rho/(4*pi*dist)
         return coeff
@@ -380,7 +399,7 @@ class NetworkElementPipe(NetworkElement):
         delta_vec = (self.loc_end - self.loc)/length*delta
         h_cap = delta_vec / norm(delta_vec)
         n_cap = perp_vec(h_cap)
-        area = 2*pi*self.radius*delta/2  # Plate has two sides. Hence eq area halfed
+        area = 2*pi*self.radius*delta/2  # Plate has two sides so eq area halfed
         for i in range(0, n):
             loc = (self.loc + delta_vec/2) + delta_vec * i
             element = DescreteElementPlate(loc, self.rho, area, n_cap)
@@ -391,6 +410,7 @@ class NetworkElementPipe(NetworkElement):
         
     
 class Network:
+    """Class for network definition and solving"""
     
     def __init__(self, rho):
         self.rho = rho
@@ -405,19 +425,39 @@ class Network:
         self.V = None
         
     def add_strip(self, loc_start, loc_end, w):
-        """Add strip element"""
-        element = NetworkElementStrip(np.array(loc_start), self.rho, w, np.array(loc_end))
+        """ Add strip element
+        
+            loc_start: Start coordinates of strip
+            loc_end: End coordinates of strip
+            w: Strip width
+        """
+        element = NetworkElementStrip(np.array(loc_start), 
+                                      self.rho, w, np.array(loc_end))
         self.elements.append(element)
         
     def add_rod(self, loc, radius, length):
-        """Add a vertical rod element"""
+        """ Add a vertical rod/ pipe element
+        
+            loc: Coordinates of pipe (z coordinate defines the rod top)
+            radius: Rod radius
+            length: Rod length
+        """
         loc_start = np.array(loc)
         loc_end = np.array(loc) + np.array([0,0,-length])
         element = NetworkElementPipe(loc_start, self.rho, radius, loc_end)
         self.elements.append(element)
     
     def add_mesh(self, loc, Lx, Ly, Nx, Ny, w):
-        """Add a uniform mesh earthing grid"""
+        """ Add a uniform mesh earthing grid
+        
+            loc: Start coordinates of grid
+            Lx: maximum length of the grid in the x direction (m)
+            Ly: maximum length of the grid in the y direction (m)
+            Nx: number of grid conductors in x direction
+            Ny: number of grid conductors in y direction
+            w: Strip width
+        """
+        
         for i in range(Nx):
             loc_start = np.array(loc) + np.array([0, i*Ly/(Nx-1), 0])
             loc_end = loc_start + np.array([Lx, 0, 0])
@@ -428,9 +468,16 @@ class Network:
             loc_end = loc_start + np.array([0, Ly, 0])
             self.add_strip(loc_start, loc_end, w)
             
-    def add_plate(self, loc, rho, w, h, n_cap=[1,0,0], h_cap=[0,0,1]):
-        """Add plate element"""
-        element = NetworkElementPlate(loc, rho, w, h, n_cap, h_cap)
+    def add_plate(self, loc, w, h, n_cap=[1,0,0], h_cap=[0,0,1]):
+        """ Add plate element
+        
+            loc: Coordinates of pipe (z coordinate defines the rod top)
+            w: Width of plate
+            h: Height of plate
+            n_cap: Normal vector perpendicular to plate
+            h_cap: Vector in the direction of plate height
+        """
+        element = NetworkElementPlate(loc, self.rho, w, h, n_cap, h_cap)
         self.elements.append(element)
         
     def mesh_geometry(self, desc_size=0.25):
@@ -472,9 +519,13 @@ class Network:
         for i, element_cur in enumerate(self.descrete_elements):
             for j, element_rem in enumerate(self.descrete_elements):
                 if i == j:  # set diag terms
-                    self.A[i,i] = element_cur.pot_coeff_self() +  element_cur.pot_coeff(element_cur.loc, mirror=True)
+                    self.A[i,i] = element_cur.pot_coeff_self() \
+                                  +  element_cur.pot_coeff(element_cur.loc, 
+                                                           mirror=True)
                 else:  # set off diag terms
-                    self.A[i,j] = element_cur.pot_coeff(element_rem.loc) + element_cur.pot_coeff(element_rem.loc, mirror=True) 
+                    self.A[i,j] = element_cur.pot_coeff(element_rem.loc) \
+                                  + element_cur.pot_coeff(element_rem.loc, 
+                                                          mirror=True) 
         
         # set last column and row
         v = np.ones((1,n))
@@ -568,18 +619,25 @@ class Network:
             
         n = len(self.descrete_elements)
         res = self.X[n,0]
-        return res
+        return np.round(res, 3)
     
     def gpr(self, Ig):
-        """Calculate ground potential rise of grid"""
+        """ Calculate ground potential rise of grid
+        
+            Ig: Grid fault current
+        """
         
         if self.X is None:
             raise Exception('Model not solved')
             
-        return Ig * self.get_resistance()
+        return np.round(Ig * self.get_resistance(), 3)
     
     def get_point_potential(self, loc, Ig=1):
-        """Get potential at a fixed location"""
+        """ Get potential at a fixed location
+        
+            loc: Location for calculation
+            Ig: Grid fault current
+        """
         
         if self.X is None:
             raise Exception('Model not solved')
@@ -590,13 +648,21 @@ class Network:
             v += coeff * self.I[slno] * Ig
         return v
     
-    def solve_surface_potential(self, Ig=1, grid=(20,20), xlim=(-20, 20), ylim=(-20, 20)):
-        """Solve for surface potentials on a uniform grid"""
+    def solve_surface_potential(self, Ig=1, grid=(20,20), 
+                                xlim=(-20, 20), ylim=(-20, 20)):
+        """ Solve for surface potentials on a uniform grid
+        
+            Ig: Grid fault current
+            grid: (nx, ny) -> number of calculation points along x & y 
+            xlim: x limits for calculation
+            ylim: y limits for calculation
+        """
         
         if self.X is None:
             raise Exception('Model not solved')
             
-        X, Y = np.meshgrid(np.linspace(*xlim, grid[0]), np.linspace(*ylim, grid[1]))
+        X, Y = np.meshgrid(np.linspace(*xlim, grid[0]), 
+                           np.linspace(*ylim, grid[1]))
         V = X*0.0
         for i, (XX, YY) in enumerate(zip(X, Y)):
             for j, (x, y) in enumerate(zip(XX, YY)):
@@ -606,16 +672,28 @@ class Network:
         self.YY = Y
         self.V = V
         
-    def solve_surface_potential_fast(self, Ig=1, grid=(20,20), xlim=(-20, 20), ylim=(-20, 20)):
+    def solve_surface_potential_fast(self, Ig=1, grid=(20,20), 
+                                     xlim=(-20, 20), ylim=(-20, 20), 
+                                     save_results=True):
         """ Solve for surface potentials on a uniform grid
-            Assumes sperical potential distribution of elements for fast calculation 
+            Assumes sperical potential distribution of elements for fast 
+            calculation 
+            
+            Ig: Grid fault current
+            grid: (nx, ny) -> number of calculation points along x & y 
+            xlim: x limits for calculation
+            ylim: y limits for calculation
+            save_results: True: Save results
+                          False: Return voltage array on instead of saving the 
+                                 results for external analysis
         """
         
         if self.X is None:
             raise Exception('Model not solved')
         
         # Form calculation mesh
-        XX, YY = np.meshgrid(np.linspace(*xlim, grid[0]), np.linspace(*ylim, grid[1]))
+        XX, YY = np.meshgrid(np.linspace(*xlim, grid[0]), 
+                             np.linspace(*ylim, grid[1]))
         
         # Calculate distance array
         nd = len(self.descrete_elements)
@@ -626,56 +704,230 @@ class Network:
         Ze = np.zeros(nd)
         for slno, element in enumerate(self.descrete_elements):
             Xe[slno], Ye[slno], Ze[slno] = element.loc
-        XXXe = np.tile(Xe, grid[0]*grid[1]).reshape((grid[0], grid[1], nd))
-        YYYe = np.tile(Ye, grid[0]*grid[1]).reshape((grid[0], grid[1], nd))
-        ZZZe = np.tile(Ze, grid[0]*grid[1]).reshape((grid[0], grid[1], nd))
+        XXXe = np.tile(Xe, grid[0]*grid[1]).reshape((grid[1], grid[0], nd))
+        YYYe = np.tile(Ye, grid[0]*grid[1]).reshape((grid[1], grid[0], nd))
+        ZZZe = np.tile(Ze, grid[0]*grid[1]).reshape((grid[1], grid[0], nd))
         DDD = np.sqrt((XXXe-XXX)**2 + (YYYe-YYY)**2 +  ZZZe**2)
         
         # Calculate voltage arrays
         # Symmetry allows doubling of voltage on account of mirror geometry
-        III = np.tile(self.I, grid[0]*grid[1]).reshape((grid[0], grid[1], nd))
+        III = np.tile(self.I, grid[0]*grid[1]).reshape((grid[1], grid[0], nd))
         VVV = III * Ig * self.rho/(4*pi*DDD) * 2 
         VV = np.sum(VVV, axis=2)
         
-        self.XX = XX
-        self.YY = YY
-        self.V = VV
+        if save_results:
+            self.XX = XX
+            self.YY = YY
+            self.V = VV
+        else:
+            return VV
         
-    def plot_surface_potential(self, xlim=(-20, 20), ylim=(-20, 20)):
-        """Display problem geometry and solutions in 3D"""
+    def mesh_voltage(self, Ig, polygon_points, mesh_no=10, plot=False):
+        """ Find mesh voltage in the passed polygon
         
-        if self.X is None:
-            raise Exception('Model not solved')
+            Parameters:
+                Ig: Grid current
+                polygon: Corner points of polygon (m)
+                mesh_no: Number of points per m for calculation
+                plot: Plot mesh voltages
+            Returns:
+                (location of max mesh voltage, maximum mesh voltage)
+        """
+        polygon_array = np.array(polygon_points)
+        polygon = path.Path(polygon_array)
+        
+        # Find limits of polygon and find voltages at corresponding mesh
+        x0 = np.min(polygon_array[:,0])
+        x1 = np.max(polygon_array[:,0])
+        y0 = np.min(polygon_array[:,1]) + 1/mesh_no  # Hack to cutoff transition 
+                                                     # from 0 to first point
+        y1 = np.max(polygon_array[:,1])
+        xlim = (x0,x1)
+        ylim = (y0,y1)
+        x_samples = int((x1-x0)*mesh_no) + 1
+        y_samples = int((y1-y0)*mesh_no) + 1
+        grid = (x_samples, y_samples)
+        V = self.solve_surface_potential_fast(Ig, grid, xlim, ylim, 
+                                              save_results=False)
+        
+        # Prepare mask with polygon
+        xx, yy = np.meshgrid(np.linspace(x0, x1, x_samples),
+                             np.linspace(y0, y1, y_samples))
+        index_array = np.hstack((xx.flatten()[:,np.newaxis], 
+                                 yy.flatten()[:,np.newaxis]))
+        flags = polygon.contains_points(index_array).reshape((grid[1], grid[0]))
+             
+        # Find mesh voltage from masked voltage
+        V_masked = (self.gpr(Ig) - V) * flags
+        v_max = np.max(V_masked)
+        index_max = np.where(V_masked == v_max)
+        loc_max = (xx[index_max][0], yy[index_max][0])
+        
+        # Plot if called for
+        if plot:
+            self.plot_surface_potential(xlim, ylim, plot_type='fill', 
+                                        plot_data=(xx, yy, V_masked), 
+                                        title='Mesh voltage profile')
+                                    
+        return np.round(loc_max, 3), np.round(v_max, 3)
+        
+    def step_voltage(self, Ig, polygon_points, mesh_no=14, step_size=1, 
+                     plot=False):
+        """ Find step voltage in the passed polygon
+            Function shifts voltage mesh grids in 8 directions for evaluation
+            of step voltage at various points
+            
+            Parameters:
+                Ig: Grid current
+                polygon: Corner points of polygon (m)
+                mesh_no: Number of points per m for calculation
+                step_size: Step size for step voltage calculation (m)
+                plot: Plot mesh voltages
+            Returns:
+                (location of max step voltage, maximum step voltage)
+        """
+        polygon_array = np.array(polygon_points)
+        polygon = path.Path(polygon_array)
+        offset = step_size  # Offset for computation 
+        
+        # Find limits of polygon and find voltages at corresponding mesh
+        x0 = np.min(polygon_array[:,0]) - offset
+        x1 = np.max(polygon_array[:,0]) + offset
+        y0 = np.min(polygon_array[:,1]) - offset + 1/mesh_no  # Hack to cutoff 
+                                                              # transition 
+                                                              # from 0 to first 
+                                                              # point
+        y1 = np.max(polygon_array[:,1]) + offset
+        xlim = (x0, x1)
+        ylim = (y0, y1)
+        x_samples = int((x1-x0)*mesh_no) + 1 + offset*mesh_no*2
+        y_samples = int((y1-y0)*mesh_no) + 1 + offset*mesh_no*2
+        grid = (x_samples, y_samples)
+        V = self.solve_surface_potential_fast(Ig, grid, xlim, ylim, 
+                                              save_results=False)
+        
+        # Prepare mask with polygon
+        xx, yy = np.meshgrid(np.linspace(x0, x1, x_samples),
+                             np.linspace(y0, y1, y_samples))
+        index_array = np.hstack((xx.flatten()[:,np.newaxis], 
+                                 yy.flatten()[:,np.newaxis]))
+        flags = polygon.contains_points(index_array).reshape((grid[1], grid[0]))
+        
+        # Compute step voltage array
+        directions = np.array([(1,0), (0.707,0.707), (0,1), (-0.707, 0.707)])
+        step_array = np.round(directions * mesh_no * step_size / 2)
+        V_steps = np.zeros((y_samples, x_samples, directions.shape[0]))
+        for slno, shift_values in enumerate(step_array.astype('i')):
+            x_shift, yshift = shift_values
+            V0 = np.roll(V, (-x_shift, -yshift), axis=(0, 1))
+            V1 = np.roll(V, (x_shift, yshift), axis=(0, 1))
+            V_steps[:,:,slno] = np.absolute(V1-V0)
+            
+        V_step = np.max(V_steps, axis=2)
+        
+        # Mask required values
+        V_masked = V_step * flags
+        v_max = np.max(V_masked)
+        index_max = np.where(V_masked == v_max)
+        loc_max = (xx[index_max][0], yy[index_max][0])
+        
+        # Plot if called for
+        if plot:
+            self.plot_surface_potential(xlim, ylim, plot_type='fill', 
+                                        plot_data=(xx, yy, V_masked), 
+                                        title='Step voltage profile')
+        return np.round(loc_max, 3), np.round(v_max, 3)
+        
+        
+    def plot_surface_potential(self, xlim=(-20, 20), ylim=(-20, 20), 
+                               plot_type='fill', levels=10, grid_spacing=1, 
+                               plot_data=None, 
+                               title='Surface potential distribution'):
+        """ Plot surface potential evaluated using solve_surface_potential(...) 
+            or solve_surface_potential_fast(...)
+        
+            xlim: x limits for plot
+            ylim: y limits for plot            
+            plot_type: May take values 'contour', 'fill', 'values'
+            levels: Number of levels for contour/ fill plot
+            grid_spacing: Spacing of plot grid
+            plot_data: (xx, yy, v) -> use custom plot data
+            title: Display title
+        """
+        
+        if plot_data is None:
+            if self.X is None:
+                raise Exception('Model not solved')
+            XX = self.XX
+            YY = self.YY
+            V = self.V
+        else:
+            XX, YY, V = plot_data
             
         ax = plt.figure().add_subplot()
         
-        contour_plot = ax.contourf(self.XX, self.YY, self.V, cmap="plasma")
-        plt.colorbar(contour_plot, pad=0.2)
+        # Plot surface potential
+        if plot_type == 'fill':
+            contour_plot = ax.contourf(XX, YY, V, levels, cmap="plasma")
+            cbar = plt.colorbar(contour_plot)
+            # cbar.set_label('Volts', loc='bottom')
+        elif plot_type == 'values':
+            ax.scatter(XX, YY, color='blue', marker='.')  # plot points
+            for i in range(XX.shape[0]):
+                for j in range(XX.shape[1]):
+                    value = round(V[i,j])
+                    ax.annotate(str(value),xy=(XX[i,j], YY[i,j]))
+        elif plot_type == 'contour':
+            contour_plot = ax.contour(XX, YY, V, levels, cmap="plasma")
+            ax.clabel(contour_plot, inline=True)
+
         
         # Plot problem geometry as lines
         for element in self.elements:
-            if isinstance(element, NetworkElementStrip) or isinstance(element, NetworkElementPipe):
+            if isinstance(element, NetworkElementStrip) \
+               or isinstance(element, NetworkElementPipe):
                 start = element.loc
                 end = element.loc_end
                 X = [start[0], end[0]]
                 Y = [start[1], end[1]]
-                ax.plot(X, Y, color='red')  # plot line
+                ax.plot(X, Y, color='green')  # plot line
             if isinstance(element, NetworkElementPlate):
-                c1 = element.loc - element.w_cap*element.w/2 - element.h_cap*element.h/2
+                c1 = element.loc - element.w_cap*element.w/2 \
+                     - element.h_cap*element.h/2
                 c2 = c1 + element.w_cap * element.w
                 c3 = c2 + element.h_cap * element.h
                 c4 = c3 - element.w_cap * element.w
                 X = [c1[0], c2[0], c3[0], c4[0], c1[0]]
                 Y = [c1[1], c2[1], c3[1], c4[1], c1[1]]
-                ax.plot(X, Y, color='red')  # plot line
-            
+                ax.plot(X, Y, color='green')  # plot line
+        
+        ax.set_xticks(np.arange(*xlim, grid_spacing))
+        ax.set_yticks(np.arange(*ylim, grid_spacing))
+        ax.grid()
         ax.set(xlim=xlim, ylim=ylim, xlabel='X', ylabel='Y')
+        plt.title(title)
         plt.show()
     
-    def plot_geometry_3d(self, xlim=(-20, 20), ylim=(-20, 20), zlim=(-5, 5), ground=False, ground_pot=True, current_distribution=True, normal=False, normal_scale=0.5):
-        """Display problem geometry and solutions in 3D"""
+    def plot_geometry_3d(self, xlim=(-20, 20), ylim=(-20, 20), zlim=(-5, 5), 
+                         ground=True, ground_pot=False, 
+                         current_distribution=False, 
+                         normal=False, normal_scale=0.5, 
+                         title='Problem geometry'):
+        """ Display problem geometry and solutions in 3D
+           
+            xlim: x limits for plot
+            ylim: y limits for plot   
+            zlim: z limits for plot
+            ground: Display ground
+            ground_pot: Plot surface potential
+            current_distribution: Plot current distribution
+            normal: Show descrete element normal vectors
+            normal_scale: Descrete element normal vector scale
+            title: Display title
+        """
         
-        if ((ground_pot is True) or (current_distribution is True) or (normal is True)) and self.X is None:
+        if ((ground_pot is True) or (current_distribution is True) \
+           or (normal is True)) and self.X is None:
             raise Exception('Model not solved')
             
         ax = plt.figure().add_subplot(projection='3d')
@@ -688,8 +940,10 @@ class Network:
         
         if ground_pot:
             # Plot surface voltage contour
-            contour_plot = ax.contourf(self.XX, self.YY, self.V, zdir='z', offset=0, cmap="plasma", alpha=0.7)
-            plt.colorbar(contour_plot, pad=0.2)
+            contour_plot = ax.contourf(self.XX, self.YY, self.V, zdir='z', 
+                                       offset=0, cmap="plasma", alpha=0.7)
+            cbar = plt.colorbar(contour_plot, pad=0.1)
+            # cbar.set_label('Volts', loc='bottom')
         
         if current_distribution:
             # Plot problem geometry with current as weight
@@ -701,27 +955,30 @@ class Network:
                 X.append(loc[0])
                 Y.append(loc[1])
                 Z.append(loc[2])
-            scat_plot = ax.scatter(X, Y, Z, c=self.I, s=5, cmap='viridis')  # plot descrete elements with current as weight
-            plt.colorbar(scat_plot, pad=0.2)
+            scat_plot = ax.scatter(X, Y, Z, c=self.I, s=5, cmap='viridis')
+            cbar = plt.colorbar(scat_plot, pad=0.1)
+            # cbar.set_label('Amps', loc='bottom')
         else:
             # Plot problem geometry as lines
             for element in self.elements:
-                if isinstance(element, NetworkElementStrip) or isinstance(element, NetworkElementPipe):
+                if isinstance(element, NetworkElementStrip) \
+                   or isinstance(element, NetworkElementPipe):
                     start = element.loc
                     end = element.loc_end
                     X = [start[0], end[0]]
                     Y = [start[1], end[1]]
                     Z = [start[2], end[2]]
-                    ax.plot(X, Y, Z, color='red')  # plot line
+                    ax.plot(X, Y, Z, color='green')  # plot line
                 if isinstance(element, NetworkElementPlate):
-                    c1 = element.loc - element.w_cap*element.w/2 - element.h_cap*element.h/2
+                    c1 = element.loc - element.w_cap*element.w/2 \
+                         - element.h_cap*element.h/2
                     c2 = c1 + element.w_cap * element.w
                     c3 = c2 + element.h_cap * element.h
                     c4 = c3 - element.w_cap * element.w
                     X = [c1[0], c2[0], c3[0], c4[0], c1[0]]
                     Y = [c1[1], c2[1], c3[1], c4[1], c1[1]]
                     Z = [c1[2], c2[2], c3[2], c4[2], c1[2]]
-                    ax.plot(X, Y, Z, color='red')  # plot line
+                    ax.plot(X, Y, Z, color='green')  # plot line
         
         # Plot direction vectors for descrete elements
         if normal:
@@ -746,6 +1003,7 @@ class Network:
         # Set plot general properties    
         ax.set(xlim=xlim, ylim=ylim, zlim=zlim,
                xlabel='X', ylabel='Y', zlabel='Z')
+        plt.title(title)
         plt.show()
     
     

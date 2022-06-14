@@ -12,6 +12,7 @@ A python library for design of earthing networks in electrical substations.
 * 3D plotting of electrode geometry used for design.
 * 3D plotting of current density distribution for the earth network.
 * 2D/3D plotting of surface potential distribution.
+* Ploting and evaluation of mesh and step potentials.
 
 
 ## Installation
