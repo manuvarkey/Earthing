@@ -722,7 +722,8 @@ class Network:
         else:
             return VV
         
-    def mesh_voltage(self, Ig, polygon_points, mesh_no=10, plot=False):
+    def mesh_voltage(self, Ig, polygon_points, mesh_no=10, 
+                     plot=False, plot_type='fill', levels=10, grid_spacing=1):
         """ Find mesh voltage in the passed polygon
         
             Parameters:
@@ -730,6 +731,9 @@ class Network:
                 polygon: Corner points of polygon (m)
                 mesh_no: Number of points per m for calculation
                 plot: Plot mesh voltages
+                plot_type: May take values 'contour', 'fill', 'values'
+                levels: Number of levels for contour/ fill plot
+                grid_spacing: Spacing of plot grid
             Returns:
                 (location of max mesh voltage, maximum mesh voltage)
         """
@@ -765,14 +769,16 @@ class Network:
         
         # Plot if called for
         if plot:
-            self.plot_surface_potential(xlim, ylim, plot_type='fill', 
+            self.plot_surface_potential(xlim, ylim, plot_type=plot_type, 
                                         plot_data=(xx, yy, V_masked), 
-                                        title='Mesh voltage profile')
+                                        title='Mesh voltage profile',
+                                        levels=levels, 
+                                        grid_spacing=grid_spacing)
                                     
         return np.round(loc_max, 3), np.round(v_max, 3)
         
     def step_voltage(self, Ig, polygon_points, mesh_no=14, step_size=1, 
-                     plot=False):
+                     plot=False, plot_type='fill', levels=10, grid_spacing=1):
         """ Find step voltage in the passed polygon
             Function shifts voltage mesh grids in 8 directions for evaluation
             of step voltage at various points
@@ -783,6 +789,9 @@ class Network:
                 mesh_no: Number of points per m for calculation
                 step_size: Step size for step voltage calculation (m)
                 plot: Plot mesh voltages
+                plot_type: May take values 'contour', 'fill', 'values'
+                levels: Number of levels for contour/ fill plot
+                grid_spacing: Spacing of plot grid
             Returns:
                 (location of max step voltage, maximum step voltage)
         """
@@ -833,9 +842,11 @@ class Network:
         
         # Plot if called for
         if plot:
-            self.plot_surface_potential(xlim, ylim, plot_type='fill', 
+            self.plot_surface_potential(xlim, ylim, plot_type=plot_type, 
                                         plot_data=(xx, yy, V_masked), 
-                                        title='Step voltage profile')
+                                        title='Step voltage profile',
+                                        levels=levels, 
+                                        grid_spacing=grid_spacing)
         return np.round(loc_max, 3), np.round(v_max, 3)
         
         
