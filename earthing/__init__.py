@@ -20,15 +20,26 @@
 #  
 #
 
-from math import *
+from math import sin, cos, tan, atan, log, sqrt, pi
 
 import numpy as np
-from numpy.linalg import inv, norm, solve
+from numpy.linalg import norm, solve
 
 import matplotlib.pyplot as plt
 from matplotlib import path
 from mpl_toolkits.mplot3d import axes3d
 from matplotlib import cm
+
+__all__ = ["Network",
+           "resistance_plate", "resistance_pipe", "resistance_strip",
+           "resistance_grid", "resistance_grid_with_rods", 
+           "resistance_parallel",
+           "e_step_70", "e_touch_70", "e_mesh_step_grid",
+           "fault_current", "max_current_density", "current_ratio"]
+
+# Limit visibility of modules to __all__
+def __dir__():
+    return __all__
 
 
 ## Resistance functions
@@ -867,8 +878,8 @@ class Network:
         """
         
         if plot_data is None:
-            if self.X is None:
-                raise Exception('Model not solved')
+            if self.V is None:
+                raise Exception('Surface potential not solved')
             XX = self.XX
             YY = self.YY
             V = self.V
