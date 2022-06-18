@@ -33,9 +33,9 @@ from matplotlib import cm
 __all__ = ["Network",
            "resistance_plate", "resistance_pipe", "resistance_strip",
            "resistance_grid", "resistance_grid_with_rods", 
-           "resistance_parallel",
            "e_step_70", "e_touch_70", "e_mesh_step_grid",
-           "fault_current", "max_current_density", "current_ratio"]
+           "fault_current", "max_current_density", "current_ratio",
+           "resistance_parallel", "rectangle"]
 
 # Limit visibility of modules to __all__
 def __dir__():
@@ -114,14 +114,6 @@ def resistance_grid_with_rods(rho, A, L_E, L_R, N, S, d, w):
     R_E = (R1*R2 - R12**2)/(R1 + R2 - 2*R12)
     return R_E
 
-def resistance_parallel(*res):
-    """ Return effective of parallel resistances """
-    R = 0
-    for r in res:
-        R += r**-1
-    return R**-1
-
-
 ## Touch & step potential fucntions
 
 def e_step_70(rho, rho_s, h_s, t_s):
@@ -198,7 +190,6 @@ def e_mesh_step_grid(rho, Lx, Ly, Lr, Nx, Ny, Nr, d, h, Ig):
     
     return Em, Es
 
-
 ## Fault current functions
 
 def fault_current(Un, c, Z):
@@ -230,7 +221,25 @@ def current_ratio(rho, R, C, Un, A, L):
         L: Cable length (km)
     """
     return C/(A+9*Un) / sqrt((C/(A+9*Un) + R/L)**2 + 0.6*(rho/A*Un)**0.1)
+
+# Convinience functions
+
+def resistance_parallel(*res):
+    """ Return effective of parallel resistances """
+    R = 0
+    for r in res:
+        R += r**-1
+    return R**-1
     
+def rectangle(loc, x_l, y_l):
+    """ Return a rectangular polygon
+        loc: (x,y) coordinates of start location
+        x_l: length of rectangle along x
+        y_l: width of rectangle along y
+    """
+    
+    x,y = loc
+    return ((x,y), (x+x_l, y), (x+x_l, y+y_l), (x, y+y_l), (x,y))
 
 ## CALCULATION ELEMENT CLASSES
 
@@ -813,15 +822,12 @@ class Network:
         # Find limits of polygon and find voltages at corresponding mesh
         x0 = np.min(polygon_array[:,0]) - offset
         x1 = np.max(polygon_array[:,0]) + offset
-        y0 = np.min(polygon_array[:,1]) - offset + 1/mesh_no  # Hack to cutoff 
-                                                              # transition 
-                                                              # from 0 to first 
-                                                              # point
+        y0 = np.min(polygon_array[:,1]) - offset
         y1 = np.max(polygon_array[:,1]) + offset
         xlim = (x0, x1)
         ylim = (y0, y1)
-        x_samples = int((x1-x0)*mesh_no) + 1 + offset*mesh_no*2
-        y_samples = int((y1-y0)*mesh_no) + 1 + offset*mesh_no*2
+        x_samples = int((x1-x0)*mesh_no) + 1 + offset*2
+        y_samples = int((y1-y0)*mesh_no) + 1 + offset*2
         grid = (x_samples, y_samples)
         V = self.solve_surface_potential_fast(Ig, grid, xlim, ylim, 
                                               save_results=False)
@@ -833,15 +839,18 @@ class Network:
                                  yy.flatten()[:,np.newaxis]))
         flags = polygon.contains_points(index_array).reshape((grid[1], grid[0]))
         
-        # Compute step voltage array
-        directions = np.array([(1,0), (0.707,0.707), (0,1), (-0.707, 0.707)])
-        step_array = np.round(directions * mesh_no * step_size / 2)
+        # Compute step voltage array in various directions
+        directions = np.array([(1,0) , (0,1),
+                               (0.707,0.707), (-0.707, 0.707),
+                               (0.5, 0.866), (-0.5, 0.866),
+                               (0.866, 0.5), (-0.866, 0.5)])
+        step_array = np.round(directions * mesh_no * step_size)
         V_steps = np.zeros((y_samples, x_samples, directions.shape[0]))
         for slno, shift_values in enumerate(step_array.astype('i')):
             x_shift, yshift = shift_values
             V0 = np.roll(V, (-x_shift, -yshift), axis=(0, 1))
             V1 = np.roll(V, (x_shift, yshift), axis=(0, 1))
-            V_steps[:,:,slno] = np.absolute(V1-V0)
+            V_steps[:,:,slno] = np.maximum(np.absolute(V0-V), np.absolute(V1-V))
             
         V_step = np.max(V_steps, axis=2)
         
