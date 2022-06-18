@@ -575,8 +575,6 @@ class Network:
         self.A = np.zeros((n+1, n+1))
         self.B = np.zeros((n+1, 1))
         self.B[n, 0] = 1  # current injection 1A
-        
-        # Form distance array
 
         LOC = np.zeros((n,3))
         LOCm = np.zeros((n,3))
@@ -590,27 +588,31 @@ class Network:
         # Computation of elements of A
         
         for slno, element in enumerate(self.descrete_elements):
-            loc = np.repeat(LOC[slno][np.newaxis, :], n, axis=0)
-            loc_m = np.repeat(LOCm[slno][np.newaxis, :], n, axis=0)
-            
+        
             N = np.repeat(element.normal[np.newaxis, :], n, axis=0)
             a = element.radius
             
+            # Form distance array
+            loc = np.repeat(LOC[slno][np.newaxis, :], n, axis=0)
+            loc_m = np.repeat(LOCm[slno][np.newaxis, :], n, axis=0)
             DD = LOC - loc  # Distance from current point to remote point
             DDm = LOC - loc_m  # Distance from mirror point to remote point
-
+            
+            # Get cylindrical coordinates
             Z = norm(N * DD, axis=1)
             R = norm(DD - (N * DD), axis=1)
             Zm = norm(N * DDm, axis=1)
             Rm = norm(DDm - (N * DDm), axis=1)
             
+            # Get coefficiencts
             A_ = R**2 + Z**2 - a**2
             ALPHA = np.sqrt((A_ + np.sqrt(A_**2 + 4 * a**2 * Z**2))/2)
             COEF = self.rho/(4*pi*a)*np.arctan(a/ALPHA)
             A_m = Rm**2 + Zm**2 - a**2
             ALPHAm = np.sqrt((A_m + np.sqrt(A_m**2 + 4 * a**2 * Zm**2))/2)
             COEFm = self.rho/(4*pi*a)*np.arctan(a/ALPHAm)
-
+            
+            # Update A
             self.A[slno, 0:n] = (COEF + COEFm)
         
         v = np.ones((1,n))
@@ -709,26 +711,18 @@ class Network:
         # Form calculation mesh
         XX, YY = np.meshgrid(np.linspace(*xlim, grid[0]), 
                              np.linspace(*ylim, grid[1]))
+        LOC = np.stack((XX, YY, np.zeros(XX.shape)), axis=2)
+        VV = np.zeros(XX.shape)
         
         # Calculate distance array
-        nd = len(self.descrete_elements)
-        XXX = np.repeat(XX[:, :, np.newaxis], nd, axis=2)
-        YYY = np.repeat(YY[:, :, np.newaxis], nd, axis=2)
-        Xe = np.zeros(nd)
-        Ye = np.zeros(nd)
-        Ze = np.zeros(nd)
         for slno, element in enumerate(self.descrete_elements):
-            Xe[slno], Ye[slno], Ze[slno] = element.loc
-        XXXe = np.tile(Xe, grid[0]*grid[1]).reshape((grid[1], grid[0], nd))
-        YYYe = np.tile(Ye, grid[0]*grid[1]).reshape((grid[1], grid[0], nd))
-        ZZZe = np.tile(Ze, grid[0]*grid[1]).reshape((grid[1], grid[0], nd))
-        DDD = np.sqrt((XXXe-XXX)**2 + (YYYe-YYY)**2 +  ZZZe**2)
-        
-        # Calculate voltage arrays
-        # Symmetry allows doubling of voltage on account of mirror geometry
-        III = np.tile(self.I, grid[0]*grid[1]).reshape((grid[1], grid[0], nd))
-        VVV = III * Ig * self.rho/(4*pi*DDD) * 2 
-        VV = np.sum(VVV, axis=2)
+            (x, y, z) = element.loc
+            ones = np.ones(XX.shape[0:2])
+            LOCe = np.stack((ones*x, ones*y, ones*z), axis=2)
+            DDD = norm(LOC - LOCe, axis=2)
+            Ie = self.I[slno]
+            # Symmetry allows doubling of voltage on account of mirror geometry
+            VV += Ie * Ig * self.rho/(4*pi*DDD) * 2 
         
         if save_results:
             self.XX = XX
