@@ -248,7 +248,7 @@ class DescreteElement:
     """Base class for all unit elements"""
     
     def __init__(self, loc, rho):
-        self.loc = loc
+        self.loc = np.array(loc)
         self.rho = rho
         
     def pot_coeff_self(self, loc):
@@ -308,7 +308,7 @@ class DescreteElementPlate(DescreteElement):
     def __init__(self, loc, rho, area, normal):
         DescreteElement.__init__(self, loc, rho)
         self.area = area
-        self.normal = normal
+        self.normal = np.array(normal)
         self.radius = sqrt(area/pi)
         
     def pot_coeff_self(self):
@@ -577,48 +577,43 @@ class Network:
         self.B[n, 0] = 1  # current injection 1A
         
         # Form distance array
-        
-        A = np.zeros(n)
-        N = np.zeros(n, dtype='object')
-        LOC = np.zeros(n, dtype='object')
-        LOCm = np.zeros(n, dtype='object')
+
+        LOC = np.zeros((n,3))
+        LOCm = np.zeros((n,3))
         
         for slno, element in enumerate(self.descrete_elements):
             mirror_loc = np.copy(element.loc)
             mirror_loc[2] = -mirror_loc[2]
             LOC[slno] = element.loc
             LOCm[slno] = mirror_loc
-            N[slno] = element.normal
-            A[slno] = element.radius
-        
-        LOC2 = np.repeat(LOC[:, np.newaxis], n, axis=1)
-        NN = np.repeat(N[:, np.newaxis], n, axis=1)
-        AA = np.repeat(A[:, np.newaxis], n, axis=1)
-        LOC2m = np.repeat(LOCm[:, np.newaxis], n, axis=1)
-        LOC2r = np.repeat(LOC[np.newaxis, :], n, axis=0)
-        
-        DD = LOC2 - LOC2r  # Distance from current point to remote point
-        DDm = LOC2m - LOC2r  # Distance from mirror point to remote point
         
         # Computation of elements of A
         
-        e_norm = np.vectorize(norm)
+        for slno, element in enumerate(self.descrete_elements):
+            loc = np.repeat(LOC[slno][np.newaxis, :], n, axis=0)
+            loc_m = np.repeat(LOCm[slno][np.newaxis, :], n, axis=0)
+            
+            N = np.repeat(element.normal[np.newaxis, :], n, axis=0)
+            a = element.radius
+            
+            DD = LOC - loc  # Distance from current point to remote point
+            DDm = LOC - loc_m  # Distance from mirror point to remote point
 
-        Z = e_norm(N * DD)
-        R = e_norm(DD - (N * DD))
-        Zm = e_norm(N * DDm)
-        Rm = e_norm(DDm - (N * DDm))
-        
-        A_ = R**2 + Z**2 - AA**2
-        ALPHA = np.sqrt((A_ + np.sqrt(A_**2 + 4 * AA**2 * Z**2))/2)
-        COEF = self.rho/(4*pi*AA)*np.arctan(AA/ALPHA)
-        A_m = Rm**2 + Zm**2 - AA**2
-        ALPHAm = np.sqrt((A_m + np.sqrt(A_m**2 + 4 * AA**2 * Zm**2))/2)
-        COEFm = self.rho/(4*pi*AA)*np.arctan(AA/ALPHAm)
+            Z = norm(N * DD, axis=1)
+            R = norm(DD - (N * DD), axis=1)
+            Zm = norm(N * DDm, axis=1)
+            Rm = norm(DDm - (N * DDm), axis=1)
+            
+            A_ = R**2 + Z**2 - a**2
+            ALPHA = np.sqrt((A_ + np.sqrt(A_**2 + 4 * a**2 * Z**2))/2)
+            COEF = self.rho/(4*pi*a)*np.arctan(a/ALPHA)
+            A_m = Rm**2 + Zm**2 - a**2
+            ALPHAm = np.sqrt((A_m + np.sqrt(A_m**2 + 4 * a**2 * Zm**2))/2)
+            COEFm = self.rho/(4*pi*a)*np.arctan(a/ALPHAm)
+
+            self.A[slno, 0:n] = (COEF + COEFm)
         
         v = np.ones((1,n))
-        
-        self.A[0:n,0:n] = COEF + COEFm
         self.A[n, :n] = v
         self.A[:n, n] = -v
         
