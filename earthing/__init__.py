@@ -432,18 +432,42 @@ class NetworkElementPipe(NetworkElement):
 class Network:
     """Class for network definition and solving"""
     
-    def __init__(self, rho):
+    def __init__(self, rho, Ig):
+        """ rho: resistivity
+            Ig: array of grid current injection 
+        """
         self.rho = rho
-        self.elements = []
+        self.Ig = [Ig]
+        
+        self.elements = [[]]
+        self.clear_model()
+        
+    def clear_model(self):
+        """ Clear calculation variables """
         self.descrete_elements = []
+        self.subnet_sizes = []
         self.A = None
         self.B = None
         self.X = None
         self.I = None
+        self.V = None
         self.XX = None
         self.YY = None
-        self.V = None
+        self.Vg = None
         
+    # Model formulation functions
+        
+    def __add__(self, obj):
+        retobj = Network(self.rho, 0)
+        retobj.Ig = self.Ig + obj.Ig
+        retobj.elements = self.elements + obj.elements
+        return retobj
+    
+    def add_subnet(self, Ig):
+        self.Ig.append(Ig)
+        self.elements.append([])
+        self.clear_model()
+
     def add_strip(self, loc_start, loc_end, w):
         """ Add strip element
         
@@ -453,7 +477,7 @@ class Network:
         """
         element = NetworkElementStrip(np.array(loc_start), 
                                       self.rho, w, np.array(loc_end))
-        self.elements.append(element)
+        self.elements[-1].append(element)
         
     def add_rod(self, loc, radius, length):
         """ Add a vertical rod/ pipe element
@@ -465,7 +489,7 @@ class Network:
         loc_start = np.array(loc)
         loc_end = np.array(loc) + np.array([0,0,-length])
         element = NetworkElementPipe(loc_start, self.rho, radius, loc_end)
-        self.elements.append(element)
+        self.elements[-1].append(element)
     
     def add_mesh(self, loc, Lx, Ly, Nx, Ny, w):
         """ Add a uniform mesh earthing grid
@@ -498,44 +522,73 @@ class Network:
             h_cap: Vector in the direction of plate height
         """
         element = NetworkElementPlate(loc, self.rho, w, h, n_cap, h_cap)
-        self.elements.append(element)
+        self.elements[-1].append(element)
         
+    # Solution functions
+    
     def mesh_geometry(self, desc_size=0.25):
         """Descretise geometry"""
         
-        if not self.elements:
+        if not self.elements[-1]:
             raise Exception('No problem geometry found')
             
         self.descrete_elements = []
         
         # Descretise Geometry
-        for element in self.elements:
-            element.descretise(desc_size)
-            descrete_elements = element.get_descrete_elements()
-            self.descrete_elements += descrete_elements
+        for subnet in self.elements:
+            subnet_descrete_elements = []
+            for element in subnet:
+                element.descretise(desc_size)
+                descrete_elements = element.get_descrete_elements()
+                subnet_descrete_elements += descrete_elements
+            self.descrete_elements += subnet_descrete_elements
+            self.subnet_sizes.append(len(subnet_descrete_elements))
             
     def generate_model(self, desc_size=0.25):
         """Formulate system of equations"""
         
-        if not self.elements:
+        if not self.elements[-1]:
             raise Exception('No problem geometry found')
         
         self.mesh_geometry(desc_size)
-                
-        # Form matrices
-        n = len(self.descrete_elements)
-        self.A = np.zeros((n+1, n+1))
-        self.B = np.zeros((n+1, 1))
-        self.B[n, 0] = 1  # current injection 1A
         
-        # AX = B ; the system of equation to be solved (n+1)x(n+1)
+        n = len(self.descrete_elements)
+        k = len(self.elements)
+        
         #
-        # sum{(Pij+Pij')*Ii} - V = 0  -- n equations
-        # I1 + I2 + ... + 0*V = 1A
+        # Total k subnets
         #
-        # X = [I1 I2 ... Ii ... In V]
-
-        # Computation of elements of A
+        # AX = B ; the system of equation to be solved (n1+n2+...+nk + k) x (n1+n2+...+nk + k)
+        #
+        # sum{(Pij+Pij')*Ii} - V1 = 0  -- n1 equations
+        # sum{(Pij+Pij')*Ii} - V2 = 0  -- n2 equations
+        # ...
+        # sum{(Pij+Pij')*Ii} - Vk = 0  -- nk equations
+        # 
+        # I11 + I12 + ... + I1n1 + 0*V1 + 0*V2 ... + 0*Vk = Ig1
+        # I21 + I22 + ... + I2n2 + 0*V1 + 0*V2 ... + 0*Vk = Ig2
+        # ...
+        # Ik1 + Ik2 + ...  + Iknk + 0*V1 + 0*V2 ... + 0*Vk = Igk
+        #
+        # X = [I11 I12 ... Iij ... In V1 V2 ... Vk]
+        #
+        # A is of form
+        # | nxn | nxk |        | A1 | A2 |
+        # | kxn | kxk |        | A3 | 0 |
+        #
+        # B is of form
+        # | nx1 |              | 0  |
+        # | kx1 |              | Ig |
+        #
+        
+        # B matrix
+        self.B = np.zeros((n+k, 1))
+        self.B[n:(n+k), 0] = self.Ig
+        
+        # A matrix
+        self.A = np.zeros((n+k, n+k))
+        
+        # A1 - P(n x n)
         for i, element_cur in enumerate(self.descrete_elements):
             for j, element_rem in enumerate(self.descrete_elements):
                 if i == j:  # set diag terms
@@ -545,48 +598,77 @@ class Network:
                 else:  # set off diag terms
                     self.A[i,j] = element_cur.pot_coeff(element_rem.loc) \
                                   + element_cur.pot_coeff(element_rem.loc, 
-                                                          mirror=True) 
+                                                          mirror=True)
         
-        # set last column and row
-        v = np.ones((1,n))
-        self.A[n, :n] = v
-        self.A[:n, n] = -v
+        # A2 - V(n x k)
+        A2 = np.zeros((n, k))
+        cum_index = 0
+        for slno, n_subnet in enumerate(self.subnet_sizes):
+            A2[cum_index:(cum_index+n_subnet), slno] = -1
+            cum_index += n_subnet
+        self.A[0:n, n:(n+k)] = A2
+        
+        # A3 - 1(k x n)
+        A3 = -A2.T
+        self.A[n:(n+k), 0:n] = A3
         
     def generate_model_fast(self, desc_size=0.25):
         """ Formulate system of equations
             Assume circular plate descretisation for fast calculation 
         """
         
-        if not self.elements:
+        if not self.elements[-1]:
             raise Exception('No problem geometry found')
         
         self.mesh_geometry(desc_size)
         
-        # AX = B ; the system of equation to be solved (n+1)x(n+1)
-        #
-        # sum{(Pij+Pij')*Ii} - V = 0  -- n equations
-        # I1 + I2 + ... + 0*V = 1A
-        #
-        # X = [I1 I2 ... Ii ... In V]
-                
-        # Form matrices
-        
         n = len(self.descrete_elements)
-        self.A = np.zeros((n+1, n+1))
-        self.B = np.zeros((n+1, 1))
-        self.B[n, 0] = 1  # current injection 1A
-
+        k = len(self.elements)
+        
+        #
+        # Total k subnets
+        #
+        # AX = B ; the system of equation to be solved (n1+n2+...+nk + k) x (n1+n2+...+nk + k)
+        #
+        # sum{(Pij+Pij')*Ii} - V1 = 0  -- n1 equations
+        # sum{(Pij+Pij')*Ii} - V2 = 0  -- n2 equations
+        # ...
+        # sum{(Pij+Pij')*Ii} - Vk = 0  -- nk equations
+        # 
+        # I11 + I12 + ... + I1n1 + 0*V1 + 0*V2 ... + 0*Vk = Ig1
+        # I21 + I22 + ... + I2n2 + 0*V1 + 0*V2 ... + 0*Vk = Ig2
+        # ...
+        # Ik1 + Ik2 + ...  + Iknk + 0*V1 + 0*V2 ... + 0*Vk = Igk
+        #
+        # X = [I11 I12 ... Iij ... In V1 V2 ... Vk]
+        #
+        # A is of form
+        # | nxn | nxk |        | A1 | A2 |
+        # | kxn | kxk |        | A3 | 0 |
+        #
+        # B is of form
+        # | nx1 |              | 0  |
+        # | kx1 |              | Ig |
+        #
+        
+        # B matrix
+        self.B = np.zeros((n+k, 1))
+        self.B[n:(n+k), 0] = self.Ig
+        
+        # A matrix
+        self.A = np.zeros((n+k, n+k))
+        
+        # A1 - P(n x n)
+        
+        # Form location array
         LOC = np.zeros((n,3))
         LOCm = np.zeros((n,3))
-        
         for slno, element in enumerate(self.descrete_elements):
             mirror_loc = np.copy(element.loc)
             mirror_loc[2] = -mirror_loc[2]
             LOC[slno] = element.loc
             LOCm[slno] = mirror_loc
-        
-        # Computation of elements of A
-        
+            
         for slno, element in enumerate(self.descrete_elements):
         
             N = np.repeat(element.normal[np.newaxis, :], n, axis=0)
@@ -612,64 +694,69 @@ class Network:
             ALPHAm = np.sqrt((A_m + np.sqrt(A_m**2 + 4 * a**2 * Zm**2))/2)
             COEFm = self.rho/(4*pi*a)*np.arctan(a/ALPHAm)
             
-            # Update A
+            # Update A1
             self.A[slno, 0:n] = (COEF + COEFm)
         
-        v = np.ones((1,n))
-        self.A[n, :n] = v
-        self.A[:n, n] = -v
+        # A2 - V(n x k)
+        A2 = np.zeros((n, k))
+        cum_index = 0
+        for slno, n_subnet in enumerate(self.subnet_sizes):
+            A2[cum_index:(cum_index+n_subnet), slno] = -1
+            cum_index += n_subnet
+        self.A[0:n, n:(n+k)] = A2
+        
+        # A3 - 1(k x n)
+        A3 = -A2.T
+        self.A[n:(n+k), 0:n] = A3
         
     def solve_model(self):
         """Solve system of equations"""
         
         if not self.descrete_elements:
             raise Exception('No model generated')
-            
+        
+        k = len(self.elements)
+        
         self.X = solve(self.A, self.B)
-        self.I = self.X[:-1,0]
+        self.I = self.X[:-k,0]
+        self.V = self.X[-k:,0]
     
     def get_resistance(self):
         """Get overall resistance of grid"""
         
         if self.X is None:
             raise Exception('Model not solved')
-            
-        n = len(self.descrete_elements)
-        res = self.X[n,0]
+        
+        res = self.V / self.Ig
         return np.round(res, 3)
     
-    def gpr(self, Ig):
+    def gpr(self):
         """ Calculate ground potential rise of grid
-        
-            Ig: Grid fault current
         """
         
-        if self.X is None:
+        if self.V is None:
             raise Exception('Model not solved')
             
-        return np.round(Ig * self.get_resistance(), 3)
+        return np.round(self.V, 3)
     
-    def get_point_potential(self, loc, Ig=1):
+    def get_point_potential(self, loc):
         """ Get potential at a fixed location
         
             loc: Location for calculation
-            Ig: Grid fault current
         """
-        
         if self.X is None:
             raise Exception('Model not solved')
             
         v = 0
         for slno, element in enumerate(self.descrete_elements):
             coeff = element.pot_coeff(loc) + element.pot_coeff(loc, mirror=True)
-            v += coeff * self.I[slno] * Ig
+            v += coeff * self.I[slno]
         return v
     
-    def solve_surface_potential(self, Ig=1, grid=(20,20), 
+    def solve_surface_potential(self, grid=(20,20), 
                                 xlim=(-20, 20), ylim=(-20, 20)):
         """ Solve for surface potentials on a uniform grid
         
-            Ig: Grid fault current
             grid: (nx, ny) -> number of calculation points along x & y 
             xlim: x limits for calculation
             ylim: y limits for calculation
@@ -684,19 +771,18 @@ class Network:
         for i, (XX, YY) in enumerate(zip(X, Y)):
             for j, (x, y) in enumerate(zip(XX, YY)):
                 loc = np.array([x,y,0])
-                V[i, j] = self.get_point_potential(loc, Ig)
+                V[i, j] = self.get_point_potential(loc)
         self.XX = X
         self.YY = Y
-        self.V = V
+        self.Vg = V
         
-    def solve_surface_potential_fast(self, Ig=1, grid=(20,20), 
+    def solve_surface_potential_fast(self, grid=(20,20), 
                                      xlim=(-20, 20), ylim=(-20, 20), 
                                      save_results=True):
         """ Solve for surface potentials on a uniform grid
             Assumes sperical potential distribution of elements for fast 
             calculation 
-            
-            Ig: Grid fault current
+
             grid: (nx, ny) -> number of calculation points along x & y 
             xlim: x limits for calculation
             ylim: y limits for calculation
@@ -722,21 +808,21 @@ class Network:
             DDD = norm(LOC - LOCe, axis=2)
             Ie = self.I[slno]
             # Symmetry allows doubling of voltage on account of mirror geometry
-            VV += Ie * Ig * self.rho/(4*pi*DDD) * 2 
+            VV += Ie * self.rho/(4*pi*DDD) * 2 
         
         if save_results:
             self.XX = XX
             self.YY = YY
-            self.V = VV
+            self.Vg = VV
         else:
             return VV
         
-    def mesh_voltage(self, Ig, polygon_points, mesh_no=10, 
-                     plot=False, plot_type='fill', levels=10, grid_spacing=1):
+    def mesh_voltage(self, polygon_points, mesh_no=10, 
+                     plot=False, plot_type='fill', levels=10, grid_spacing=1,
+                     subnet=0):
         """ Find mesh voltage in the passed polygon
         
             Parameters:
-                Ig: Grid current
                 polygon: Corner points of polygon (m)
                 mesh_no: Number of points per m for calculation
                 plot: Plot mesh voltages
@@ -760,7 +846,7 @@ class Network:
         x_samples = int((x1-x0)*mesh_no) + 1
         y_samples = int((y1-y0)*mesh_no) + 1
         grid = (x_samples, y_samples)
-        V = self.solve_surface_potential_fast(Ig, grid, xlim, ylim, 
+        V = self.solve_surface_potential_fast(grid, xlim, ylim, 
                                               save_results=False)
         
         # Prepare mask with polygon
@@ -771,7 +857,7 @@ class Network:
         flags = polygon.contains_points(index_array).reshape((grid[1], grid[0]))
              
         # Find mesh voltage from masked voltage
-        V_masked = (self.gpr(Ig) - V) * flags
+        V_masked = (self.gpr()[subnet] - V) * flags  #TODO
         v_max = np.max(V_masked)
         index_max = np.where(V_masked == v_max)
         loc_max = (xx[index_max][0], yy[index_max][0])
@@ -786,14 +872,13 @@ class Network:
                                     
         return np.round(loc_max, 3), np.round(v_max, 3)
         
-    def step_voltage(self, Ig, polygon_points, mesh_no=14, step_size=1, 
+    def step_voltage(self, polygon_points, mesh_no=14, step_size=1, 
                      plot=False, plot_type='fill', levels=10, grid_spacing=1):
         """ Find step voltage in the passed polygon
             Function shifts voltage mesh grids in 8 directions for evaluation
             of step voltage at various points
             
             Parameters:
-                Ig: Grid current
                 polygon: Corner points of polygon (m)
                 mesh_no: Number of points per m for calculation
                 step_size: Step size for step voltage calculation (m)
@@ -818,7 +903,7 @@ class Network:
         x_samples = int((x1-x0)*mesh_no) + 1 + offset*2
         y_samples = int((y1-y0)*mesh_no) + 1 + offset*2
         grid = (x_samples, y_samples)
-        V = self.solve_surface_potential_fast(Ig, grid, xlim, ylim, 
+        V = self.solve_surface_potential_fast(grid, xlim, ylim, 
                                               save_results=False)
         
         # Prepare mask with polygon
@@ -858,7 +943,6 @@ class Network:
                                         grid_spacing=grid_spacing)
         return np.round(loc_max, 3), np.round(v_max, 3)
         
-        
     def plot_surface_potential(self, xlim=(-20, 20), ylim=(-20, 20), 
                                plot_type='fill', levels=10, grid_spacing=1, 
                                plot_data=None, 
@@ -876,11 +960,11 @@ class Network:
         """
         
         if plot_data is None:
-            if self.V is None:
+            if self.Vg is None:
                 raise Exception('Surface potential not solved')
             XX = self.XX
             YY = self.YY
-            V = self.V
+            V = self.Vg
         else:
             XX, YY, V = plot_data
             
@@ -903,23 +987,24 @@ class Network:
 
         
         # Plot problem geometry as lines
-        for element in self.elements:
-            if isinstance(element, NetworkElementStrip) \
-               or isinstance(element, NetworkElementPipe):
-                start = element.loc
-                end = element.loc_end
-                X = [start[0], end[0]]
-                Y = [start[1], end[1]]
-                ax.plot(X, Y, color='green')  # plot line
-            if isinstance(element, NetworkElementPlate):
-                c1 = element.loc - element.w_cap*element.w/2 \
-                     - element.h_cap*element.h/2
-                c2 = c1 + element.w_cap * element.w
-                c3 = c2 + element.h_cap * element.h
-                c4 = c3 - element.w_cap * element.w
-                X = [c1[0], c2[0], c3[0], c4[0], c1[0]]
-                Y = [c1[1], c2[1], c3[1], c4[1], c1[1]]
-                ax.plot(X, Y, color='green')  # plot line
+        for subnet in self.elements:
+            for element in subnet:
+                if isinstance(element, NetworkElementStrip) \
+                   or isinstance(element, NetworkElementPipe):
+                    start = element.loc
+                    end = element.loc_end
+                    X = [start[0], end[0]]
+                    Y = [start[1], end[1]]
+                    ax.plot(X, Y, color='green')  # plot line
+                if isinstance(element, NetworkElementPlate):
+                    c1 = element.loc - element.w_cap*element.w/2 \
+                         - element.h_cap*element.h/2
+                    c2 = c1 + element.w_cap * element.w
+                    c3 = c2 + element.h_cap * element.h
+                    c4 = c3 - element.w_cap * element.w
+                    X = [c1[0], c2[0], c3[0], c4[0], c1[0]]
+                    Y = [c1[1], c2[1], c3[1], c4[1], c1[1]]
+                    ax.plot(X, Y, color='green')  # plot line
         
         ax.set_xticks(np.arange(*xlim, grid_spacing))
         ax.set_yticks(np.arange(*ylim, grid_spacing))
@@ -960,7 +1045,7 @@ class Network:
         
         if ground_pot:
             # Plot surface voltage contour
-            contour_plot = ax.contourf(self.XX, self.YY, self.V, zdir='z', 
+            contour_plot = ax.contourf(self.XX, self.YY, self.Vg, zdir='z', 
                                        offset=0, cmap="plasma", alpha=0.7)
             cbar = plt.colorbar(contour_plot, pad=0.1)
             # cbar.set_label('Volts', loc='bottom')
@@ -980,25 +1065,26 @@ class Network:
             # cbar.set_label('Amps', loc='bottom')
         else:
             # Plot problem geometry as lines
-            for element in self.elements:
-                if isinstance(element, NetworkElementStrip) \
-                   or isinstance(element, NetworkElementPipe):
-                    start = element.loc
-                    end = element.loc_end
-                    X = [start[0], end[0]]
-                    Y = [start[1], end[1]]
-                    Z = [start[2], end[2]]
-                    ax.plot(X, Y, Z, color='green')  # plot line
-                if isinstance(element, NetworkElementPlate):
-                    c1 = element.loc - element.w_cap*element.w/2 \
-                         - element.h_cap*element.h/2
-                    c2 = c1 + element.w_cap * element.w
-                    c3 = c2 + element.h_cap * element.h
-                    c4 = c3 - element.w_cap * element.w
-                    X = [c1[0], c2[0], c3[0], c4[0], c1[0]]
-                    Y = [c1[1], c2[1], c3[1], c4[1], c1[1]]
-                    Z = [c1[2], c2[2], c3[2], c4[2], c1[2]]
-                    ax.plot(X, Y, Z, color='green')  # plot line
+            for subnet in self.elements:
+                for element in subnet:
+                    if isinstance(element, NetworkElementStrip) \
+                       or isinstance(element, NetworkElementPipe):
+                        start = element.loc
+                        end = element.loc_end
+                        X = [start[0], end[0]]
+                        Y = [start[1], end[1]]
+                        Z = [start[2], end[2]]
+                        ax.plot(X, Y, Z, color='green')  # plot line
+                    if isinstance(element, NetworkElementPlate):
+                        c1 = element.loc - element.w_cap*element.w/2 \
+                             - element.h_cap*element.h/2
+                        c2 = c1 + element.w_cap * element.w
+                        c3 = c2 + element.h_cap * element.h
+                        c4 = c3 - element.w_cap * element.w
+                        X = [c1[0], c2[0], c3[0], c4[0], c1[0]]
+                        Y = [c1[1], c2[1], c3[1], c4[1], c1[1]]
+                        Z = [c1[2], c2[2], c3[2], c4[2], c1[2]]
+                        ax.plot(X, Y, Z, color='green')  # plot line
         
         # Plot direction vectors for descrete elements
         if normal:
