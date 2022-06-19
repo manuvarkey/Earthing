@@ -29,6 +29,7 @@ import matplotlib.pyplot as plt
 from matplotlib import path
 from mpl_toolkits.mplot3d import axes3d
 from matplotlib import cm
+from cycler import cycler
 
 __all__ = ["Network",
            "resistance_plate", "resistance_pipe", "resistance_strip",
@@ -40,7 +41,11 @@ __all__ = ["Network",
 # Limit visibility of modules to __all__
 def __dir__():
     return __all__
-
+    
+# Global variables
+def plot_cycler():
+    return (cycler(color=list('grcy')))
+eplot_linewidth = 3
 
 ## Resistance functions
     
@@ -508,7 +513,7 @@ class Network:
             self.add_strip(loc_start, loc_end, w)
         # Add second row offset by 2*w to avoid computation errors
         for i in range(Ny):
-            loc_start = np.array(loc) + np.array([i*Lx/(Ny-1), 0, -2*w])
+            loc_start = np.array(loc) + np.array([i*Lx/(Ny-1), 0, 0])
             loc_end = loc_start + np.array([0, Ly, 0])
             self.add_strip(loc_start, loc_end, w)
             
@@ -526,13 +531,14 @@ class Network:
         
     # Solution functions
     
-    def mesh_geometry(self, desc_size=0.25):
+    def mesh_geometry(self, desc_size=0.2):
         """Descretise geometry"""
         
         if not self.elements[-1]:
             raise Exception('No problem geometry found')
             
         self.descrete_elements = []
+        self.subnet_sizes = []
         
         # Descretise Geometry
         for subnet in self.elements:
@@ -987,7 +993,8 @@ class Network:
 
         
         # Plot problem geometry as lines
-        for subnet in self.elements:
+        styler = plot_cycler()
+        for subnet, style in zip(self.elements, styler):
             for element in subnet:
                 if isinstance(element, NetworkElementStrip) \
                    or isinstance(element, NetworkElementPipe):
@@ -995,7 +1002,7 @@ class Network:
                     end = element.loc_end
                     X = [start[0], end[0]]
                     Y = [start[1], end[1]]
-                    ax.plot(X, Y, color='green')  # plot line
+                    ax.plot(X, Y, **style, linewidth=eplot_linewidth)  # plot line
                 if isinstance(element, NetworkElementPlate):
                     c1 = element.loc - element.w_cap*element.w/2 \
                          - element.h_cap*element.h/2
@@ -1004,7 +1011,7 @@ class Network:
                     c4 = c3 - element.w_cap * element.w
                     X = [c1[0], c2[0], c3[0], c4[0], c1[0]]
                     Y = [c1[1], c2[1], c3[1], c4[1], c1[1]]
-                    ax.plot(X, Y, color='green')  # plot line
+                    ax.plot(X, Y, **style, linewidth=eplot_linewidth)  # plot line
         
         ax.set_xticks(np.arange(*xlim, grid_spacing))
         ax.set_yticks(np.arange(*ylim, grid_spacing))
@@ -1049,43 +1056,7 @@ class Network:
                                        offset=0, cmap="plasma", alpha=0.7)
             cbar = plt.colorbar(contour_plot, pad=0.1)
             # cbar.set_label('Volts', loc='bottom')
-        
-        if current_distribution:
-            # Plot problem geometry with current as weight
-            X = []
-            Y = []
-            Z = []
-            for slno, element in enumerate(self.descrete_elements):
-                loc = element.loc
-                X.append(loc[0])
-                Y.append(loc[1])
-                Z.append(loc[2])
-            scat_plot = ax.scatter(X, Y, Z, c=self.I, s=5, cmap='viridis')
-            cbar = plt.colorbar(scat_plot, pad=0.1)
-            # cbar.set_label('Amps', loc='bottom')
-        else:
-            # Plot problem geometry as lines
-            for subnet in self.elements:
-                for element in subnet:
-                    if isinstance(element, NetworkElementStrip) \
-                       or isinstance(element, NetworkElementPipe):
-                        start = element.loc
-                        end = element.loc_end
-                        X = [start[0], end[0]]
-                        Y = [start[1], end[1]]
-                        Z = [start[2], end[2]]
-                        ax.plot(X, Y, Z, color='green')  # plot line
-                    if isinstance(element, NetworkElementPlate):
-                        c1 = element.loc - element.w_cap*element.w/2 \
-                             - element.h_cap*element.h/2
-                        c2 = c1 + element.w_cap * element.w
-                        c3 = c2 + element.h_cap * element.h
-                        c4 = c3 - element.w_cap * element.w
-                        X = [c1[0], c2[0], c3[0], c4[0], c1[0]]
-                        Y = [c1[1], c2[1], c3[1], c4[1], c1[1]]
-                        Z = [c1[2], c2[2], c3[2], c4[2], c1[2]]
-                        ax.plot(X, Y, Z, color='green')  # plot line
-        
+            
         # Plot direction vectors for descrete elements
         if normal:
             X = []
@@ -1111,6 +1082,42 @@ class Network:
                xlabel='X', ylabel='Y', zlabel='Z')
         plt.title(title)
         plt.show()
-    
-    
-    
+        
+        if current_distribution:
+            # Plot problem geometry with current as weight
+            X = []
+            Y = []
+            Z = []
+            for slno, element in enumerate(self.descrete_elements):
+                loc = element.loc
+                X.append(loc[0])
+                Y.append(loc[1])
+                Z.append(loc[2])
+            scat_plot = ax.scatter(X, Y, Z, c=self.I, s=5, cmap='viridis')
+            cbar = plt.colorbar(scat_plot, pad=0.1)
+            # cbar.set_label('Amps', loc='bottom')
+        else:
+            # Plot problem geometry as lines
+            styler = plot_cycler()
+            for subnet, style in zip(self.elements, styler):
+                for element in subnet:
+                    if isinstance(element, NetworkElementStrip) \
+                       or isinstance(element, NetworkElementPipe):
+                        start = element.loc
+                        end = element.loc_end
+                        X = [start[0], end[0]]
+                        Y = [start[1], end[1]]
+                        Z = [start[2], end[2]]
+                        ax.plot(X, Y, Z, **style, linewidth=eplot_linewidth)  # plot line
+                    if isinstance(element, NetworkElementPlate):
+                        c1 = element.loc - element.w_cap*element.w/2 \
+                             - element.h_cap*element.h/2
+                        c2 = c1 + element.w_cap * element.w
+                        c3 = c2 + element.h_cap * element.h
+                        c4 = c3 - element.w_cap * element.w
+                        X = [c1[0], c2[0], c3[0], c4[0], c1[0]]
+                        Y = [c1[1], c2[1], c3[1], c4[1], c1[1]]
+                        Z = [c1[2], c2[2], c3[2], c4[2], c1[2]]
+                        ax.plot(X, Y, Z, **style, linewidth=eplot_linewidth)  # plot line
+        
+        
