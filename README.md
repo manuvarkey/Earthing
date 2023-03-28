@@ -1,8 +1,8 @@
 # Earthing
 
-![PyPI](https://img.shields.io/pypi/v/earthing)
+[![PyPI](https://img.shields.io/pypi/v/earthing)](https://pypi.org/project/earthing/)
 [![Release](https://img.shields.io/github/release/manuvarkey/GElectrical.svg)](https://github.com/manuvarkey/GElectrical/releases/latest)
-![License](https://img.shields.io/github/license/manuvarkey/Earthing)
+[![License](https://img.shields.io/github/license/manuvarkey/Earthing)](https://github.com/manuvarkey/Earthing/blob/main/LICENSE)
 
 A python library for design of earthing networks in electrical substations. 
 
