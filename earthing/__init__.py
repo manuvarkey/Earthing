@@ -225,7 +225,7 @@ def current_ratio(rho, R, C, Un, A, L):
         A: Cross sectional area (mm2)
         L: Cable length (km)
     """
-    return C/(A+9*Un) / sqrt((C/(A+9*Un) + R/L)**2 + 0.6*(rho/A*Un)**0.1)
+    return C/(A+9*Un) / sqrt((C/(A+9*Un) + R/L)**2 + 0.6*(rho/(A*Un))**0.1)
 
 # Convinience functions
 
