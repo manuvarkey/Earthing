@@ -65,7 +65,7 @@ Recent versions changed some default formulae. Pass `method=` to keep the earlie
 
 ## Validation
 
-`validation/` checks the package against worked examples and tables of IEEE Std 80-2000, ENA EREC S34, ENA TS 41-24, IS 3043:2018 and IEEE Std 142 (224 cases). Run:
+`validation/` checks the package against worked examples and tables of IEEE Std 80-2000, ENA EREC S34, ENA TS 41-24, IS 3043:2018 and IEEE Std 142 (231 cases). Run:
 
 ```bash
 python3 validation/run_validation.py

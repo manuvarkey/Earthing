@@ -995,6 +995,26 @@ def _ieee_l_mesh_voltage():
     return max(float(n.mesh_voltage(e.rectangle(c, 7, 7))[1]) for c in meshes)
 
 
+_D = 1 / sqrt(2)  # unit diagonal component
+
+
+def _centre_touch(n, mesh_corners, size=7):
+    """IEEE 80 definition of mesh voltage: GPR minus the surface potential at
+    the centre of the mesh; the largest over the given meshes."""
+    gpr = n.gpr()[0]
+    return max(gpr - n.get_point_potential([x + size / 2, y + size / 2, 0])
+               for x, y in mesh_corners)
+
+
+def _bisector_step(n, corners):
+    """IEEE 80 definition of step voltage: potential difference over 1 m from
+    a grid corner outward along the corner bisector; the largest over the
+    given (corner, outward unit direction) pairs."""
+    return max(n.get_point_potential([x, y, 0])
+               - n.get_point_potential([x + dx, y + dy, 0])
+               for (x, y), (dx, dy) in corners)
+
+
 def _ieee_l_step_voltage():
     n = _ieee_l_grid_network()
     return max(float(n.step_voltage(e.rectangle((x - 1, y - 1), 2, 2), mesh_no=20)[1])
@@ -1041,7 +1061,7 @@ def _numerical_cases() -> List[Case]:
         rtol=RTOL_NUM_RESISTANCE, kind=NUMERICAL, note=epri + delta_note))
     cases.append(Case(
         "NUM-IEEE80-B1-Em", IEEE80, "Annex B.1 Step 9 (EPRI comparison)",
-        "Network: corner-mesh touch voltage, no rods", "Network.mesh_voltage",
+        "Network: largest touch voltage in the corner mesh, no rods", "Network.mesh_voltage",
         lambda: _ieee_mesh_voltage(False), 984.3, "V",
         rtol=RTOL_NUM_VOLTAGE, kind=NUMERICAL, note=epri + delta_note))
     cases.append(Case(
@@ -1051,12 +1071,12 @@ def _numerical_cases() -> List[Case]:
         rtol=RTOL_NUM_RESISTANCE, kind=NUMERICAL, note=epri + delta_note))
     cases.append(Case(
         "NUM-IEEE80-B2-Em", IEEE80, "Annex B.2 Step 12 (EPRI comparison)",
-        "Network: corner-mesh touch voltage, 20 rods", "Network.mesh_voltage",
+        "Network: largest touch voltage in the corner mesh, 20 rods", "Network.mesh_voltage",
         lambda: _ieee_mesh_voltage(True), 756.2, "V",
         rtol=RTOL_NUM_VOLTAGE, kind=NUMERICAL, note=epri + delta_note))
     cases.append(Case(
         "NUM-IEEE80-B2-Es", IEEE80, "Annex B.2 Step 12 (EPRI comparison)",
-        "Network: step voltage at grid corner, 20 rods", "Network.step_voltage",
+        "Network: largest step voltage around the grid corner, 20 rods", "Network.step_voltage",
         lambda: _ieee_step_voltage(True), 459.1, "V",
         rtol=RTOL_NUM_VOLTAGE, kind=NUMERICAL, note=epri + delta_note))
     cases.append(Case(
@@ -1079,12 +1099,12 @@ def _numerical_cases() -> List[Case]:
         rtol=RTOL_NUM_RESISTANCE, kind=NUMERICAL, note=epri3 + delta_note))
     cases.append(Case(
         "NUM-IEEE80-B3-Em", IEEE80, "Annex B.3 Step 9 (EPRI comparison)",
-        "Network: corner-mesh touch voltage, 63 m x 84 m grid", "Network.mesh_voltage",
+        "Network: largest touch voltage in the corner mesh, 63 m x 84 m grid", "Network.mesh_voltage",
         lambda: float(_ieee_b3_network().mesh_voltage(e.rectangle((0, 0), 7, 7))[1]),
         519.4, "V", rtol=RTOL_NUM_VOLTAGE, kind=NUMERICAL, note=epri3 + delta_note))
     cases.append(Case(
         "NUM-IEEE80-B3-Es", IEEE80, "Annex B.3 Step 9 (EPRI comparison)",
-        "Network: step voltage at grid corner, 63 m x 84 m grid", "Network.step_voltage",
+        "Network: largest step voltage around the grid corner, 63 m x 84 m grid", "Network.step_voltage",
         lambda: float(_ieee_b3_network().step_voltage(
             e.rectangle((-1, -1), 2, 2), mesh_no=20)[1]),
         349.7, "V", rtol=RTOL_NUM_VOLTAGE, kind=NUMERICAL, note=epri3 + delta_note))
@@ -1109,6 +1129,45 @@ def _numerical_cases() -> List[Case]:
         "Network.step_voltage", _ieee_l_step_voltage, 441.8, "V",
         rtol=RTOL_NUM_VOLTAGE, kind=NUMERICAL,
         note=epri4 + "Maximum over the five outer corners. " + delta_note))
+
+    # The same examples with IEEE 80's own definitions (16.5): mesh voltage
+    # at the centre of the corner mesh, step voltage over 1 m from the grid
+    # corner along the bisector. These compare like with like; the cases
+    # above use the worst value over the mesh or corner area.
+    ieee_def = ("IEEE 80 definition, evaluated with Network.get_point_potential. "
+                + delta_note)
+    for cid, desc, net, meshes, ref in [
+        ("NUM-IEEE80-B1-Em-centre", "Example 1 (no rods)",
+         lambda: _ieee_grid_network(False), ((0, 0),), 984.3),
+        ("NUM-IEEE80-B2-Em-centre", "Example 2 (20 rods)",
+         lambda: _ieee_grid_network(True), ((0, 0),), 756.2),
+        ("NUM-IEEE80-B3-Em-centre", "Example 3 (38 rods)",
+         _ieee_b3_network, ((0, 0),), 519.4),
+        ("NUM-IEEE80-B4-Em-centre", "Example 4 (L-shaped), largest of five corner meshes",
+         _ieee_l_grid_network, ((0, 0), (63, 0), (63, 28), (28, 98), (0, 98)), 742.9),
+    ]:
+        cases.append(Case(
+            cid, IEEE80, "16.5.1 and Annex B (EPRI comparison)",
+            "Network: touch voltage at corner-mesh centre, " + desc,
+            "Network.get_point_potential",
+            (lambda net=net, meshes=meshes: _centre_touch(net(), meshes)),
+            ref, "V", rtol=RTOL_NUM_VOLTAGE, kind=NUMERICAL, note=ieee_def))
+    for cid, desc, net, corners, ref in [
+        ("NUM-IEEE80-B2-Es-bisector", "Example 2 (20 rods)",
+         lambda: _ieee_grid_network(True), (((0, 0), (-_D, -_D)),), 459.1),
+        ("NUM-IEEE80-B3-Es-bisector", "Example 3 (38 rods)",
+         _ieee_b3_network, (((0, 0), (-_D, -_D)),), 349.7),
+        ("NUM-IEEE80-B4-Es-bisector", "Example 4 (L-shaped), largest of five outer corners",
+         _ieee_l_grid_network,
+         (((0, 0), (-_D, -_D)), ((70, 0), (_D, -_D)), ((70, 35), (_D, _D)),
+          ((35, 105), (_D, _D)), ((0, 105), (-_D, _D))), 441.8),
+    ]:
+        cases.append(Case(
+            cid, IEEE80, "16.5.2 and Annex B (EPRI comparison)",
+            "Network: step voltage 1 m out along the corner bisector, " + desc,
+            "Network.get_point_potential",
+            (lambda net=net, corners=corners: _bisector_step(net(), corners)),
+            ref, "V", rtol=RTOL_NUM_VOLTAGE, kind=NUMERICAL, note=ieee_def))
 
     # generate_model (non-fast path) must agree with generate_model_fast.
     cases.append(Case(

@@ -1337,14 +1337,19 @@ class Network:
         offset = step_size  # Offset for computation 
         
         # Find limits of polygon and find voltages at corresponding mesh
+        # Sample spacing is exactly 1/mesh_no and the grid starts one step
+        # outside the polygon, so polygon corners lie on grid points and a
+        # shift of mesh_no*step_size samples is one step long.
         x0 = np.min(polygon_array[:,0]) - offset
-        x1 = np.max(polygon_array[:,0]) + offset
         y0 = np.min(polygon_array[:,1]) - offset
-        y1 = np.max(polygon_array[:,1]) + offset
+        x_samples = int(np.ceil(round((np.max(polygon_array[:,0]) + offset
+                                       - x0)*mesh_no, 9))) + 1
+        y_samples = int(np.ceil(round((np.max(polygon_array[:,1]) + offset
+                                       - y0)*mesh_no, 9))) + 1
+        x1 = x0 + (x_samples - 1)/mesh_no
+        y1 = y0 + (y_samples - 1)/mesh_no
         xlim = (x0, x1)
         ylim = (y0, y1)
-        x_samples = int((x1-x0)*mesh_no) + 1 + offset*2
-        y_samples = int((y1-y0)*mesh_no) + 1 + offset*2
         grid = (x_samples, y_samples)
         V = self.solve_surface_potential_fast(grid, xlim, ylim, 
                                               save_results=False)
@@ -1364,10 +1369,15 @@ class Network:
         step_array = np.round(directions * mesh_no * step_size)
         V_steps = np.zeros((y_samples, x_samples, directions.shape[0]))
         for slno, shift_values in enumerate(step_array.astype('i')):
-            x_shift, yshift = shift_values
-            V0 = np.roll(V, (-x_shift, -yshift), axis=(0, 1))
-            V1 = np.roll(V, (x_shift, yshift), axis=(0, 1))
-            V_steps[:,:,slno] = np.maximum(np.absolute(V0-V), np.absolute(V1-V))
+            x_shift, y_shift = shift_values
+            # V is indexed [y, x]
+            V0 = np.roll(V, (-y_shift, -x_shift), axis=(0, 1))
+            V1 = np.roll(V, (y_shift, x_shift), axis=(0, 1))
+            # Rounding the shift to whole samples changes the step length
+            # slightly; scale the difference back to step_size.
+            scale = step_size*mesh_no/np.hypot(x_shift, y_shift)
+            V_steps[:,:,slno] = scale*np.maximum(np.absolute(V0-V),
+                                                 np.absolute(V1-V))
             
         V_step = np.max(V_steps, axis=2)
         

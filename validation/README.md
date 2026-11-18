@@ -2,7 +2,7 @@
 
 This folder checks the `earthing` package against worked examples, tables and formulas from published earthing standards.
 
-**Current status:** 224 cases, 210 pass, 0 fail, 14 informational. See [report.md](report.md) for every case.
+**Current status:** 231 cases, 217 pass, 0 fail, 14 informational. See [report.md](report.md) for every case.
 
 ## Quick start
 
@@ -69,20 +69,41 @@ Reference values were copied from these documents. Each case in `cases.py` recor
 
 ### Numerical solver (`Network`, `generate_model_fast`)
 
+#### How the solver checks work
+
+1. **Solve.** The electrode geometry is split into segments of length Δ, and each segment is modelled as a flat disc of equal area. An image disc above ground models the soil surface. The solver finds the current leaking from each disc so that every disc is at the same potential (the GPR) and the currents add up to the injected current Ig. Resistance is R = GPR / Ig.
+2. **Surface potential.** The potential at a point on the ground surface is the sum of the disc currents times their potential coefficients (direct and image).
+3. **Touch (mesh) voltage** is GPR minus the surface potential, at a point inside a grid mesh. Two versions are checked:
+   - *IEEE 80 definition:* at the centre of the corner mesh, computed with `get_point_potential`. This is how IEEE 80 and EPRI define it, so it is the like-for-like comparison.
+   - *Worst case:* the largest value anywhere in the corner mesh, from `Network.mesh_voltage` (0.1 m sampling). This is higher than the centre value and is what a design check would use.
+4. **Step voltage** is the potential difference over 1 m on the ground surface. Two versions are checked:
+   - *IEEE 80 definition:* from the grid corner 1 m outward along the corner bisector.
+   - *Worst case:* the largest 1 m difference in 8 directions around the grid corner, from `Network.step_voltage` (20 samples per metre).
+5. **Compare** with the EPRI TR-100622 computer results quoted in IEEE 80 Annex B, or with closed-form formulas.
+
+Model assumptions for the IEEE 80 examples: 10 mm round conductors are modelled as 20 mm strips (equal equivalent radius), rods are 16 mm (not stated by IEEE), Δ = 0.2 m. Rod positions for Examples 3 and 4 were read from Figures B.3 and B.4.
+
+#### Results against EPRI (IEEE 80 Annex B)
+
+| Example | Resistance | Touch, mesh centre | Touch, worst in mesh | Step, corner bisector | Step, worst at corner |
+| --- | --- | --- | --- | --- | --- |
+| 1: 70 m × 70 m grid, no rods | 2.675 Ω vs 2.67 (+0.2 %) | 993.2 V vs 984.3 (+0.9 %) | 1042.4 V (+5.9 %) | no EPRI value | no EPRI value |
+| 2: same grid, 20 rods | 2.519 Ω vs 2.52 (0.0 %) | 759.3 V vs 756.2 (+0.4 %) | 780.4 V (+3.2 %) | 455.4 V vs 459.1 (−0.8 %) | 457.9 V (−0.3 %) |
+| 3: 63 m × 84 m, 38 rods | 2.285 Ω vs 2.28 (+0.2 %) | 518.7 V vs 519.4 (−0.1 %) | 543.9 V (+4.7 %) | 365.9 V vs 349.7 (+4.6 %) | 367.6 V (+5.1 %) |
+| 4: L-shaped, 24 rods | 2.345 Ω vs 2.34 (+0.2 %) | 742.3 V vs 742.9 (−0.1 %) | 778.5 V (+4.8 %) | 442.9 V vs 441.8 (+0.3 %) | 457.8 V (+3.6 %) |
+
+For Example 4, IEEE 80 does not say which corner EPRI used, so the largest over the five outer corner meshes and corners is taken.
+
+#### Other solver checks
+
 | Case | Reference | Step | Deviation |
 | --- | --- | --- | --- |
-| IEEE 80 Example 1: grid, no rods | EPRI R = 2.67 Ω, Em = 984.3 V | 0.2 m | R +0.2 %, Em +5.9 % |
-| IEEE 80 Example 2: grid, 20 rods | EPRI R = 2.52 Ω, Em = 756.2 V, Es = 459.1 V | 0.2 m | R 0.0 %, Em +3.2 %, Es −3.3 % |
-| IEEE 80 Example 3: 63 m × 84 m, 38 rods | EPRI R = 2.28 Ω, Em = 519.4 V, Es = 349.7 V | 0.2 m | R +0.2 %, Em +4.7 %, Es +1.9 % |
-| IEEE 80 Example 4: L-shaped, 24 rods | EPRI R = 2.34 Ω, Em = 742.9 V, Es = 441.8 V | 0.2 m | R +0.2 %, Em +4.8 %, Es +0.7 % |
 | Single rod, 3.6 m | ENA S34 R1 | 0.1 m | +1.9 % |
 | Plate, 1 m × 1 m at 0.5 m | ENA S34 R2 / IEEE 142 | 0.2 m | −0.9 % / −1.8 % |
 | Strip, 20 m at 0.5 m | IEEE 142 | 0.2 m | +1.7 % |
 | Surface potential 1 m, 9 m, 50 m from a rod | ENA S34 P6.2 | 0.05 m | −2.6 %, −0.2 %, 0.0 % |
 | Two sub-networks (`add_subnet`) | IEEE 142 two-rod formula | 0.05 m | −0.1 % |
 | `generate_model` (slower path) | ENA S34 R1, and equal to `generate_model_fast` | 0.1 m | +1.9 % |
-
-EPRI values are the EPRI TR-100622 computer results quoted in IEEE 80 Annex B. Rod positions for Examples 3 and 4 were read from Figures B.3 and B.4.
 
 ### Not checked
 
@@ -152,6 +173,7 @@ python3 validation/discretisation_sweep.py
 - Factor k in `resistance_grid_with_rods` (S34 method) diverged above 64 rods; it is now interpolated from Figure B.1 and held at the chart end value beyond 72 rods.
 - `e_mesh_step_grid` always assumed perimeter rods; `rods_on_perimeter=False` now applies IEEE 80 Eqs. (82) and (90).
 - The single-rod solver case failed at Δ = 0.2 m (+9 %); it now runs at 0.1 m (+1.9 %).
+- `Network.step_voltage` sampled the surface at 0.0488 m instead of 1/`mesh_no` (0.05 m), so its "1 m" step was 0.97–0.98 m long and missed the grid corner. It read about 2.5 % low on Example 2 (444.0 V against EPRI 459.1 V). The grid spacing is now exact, the corner lies on a grid point, and differences are scaled to exactly one step length. Example 2 now gives 457.9 V. Fixed in 2.0.3.
 
 Still open: `Network.generate_model` can raise `ZeroDivisionError` at very small steps (seen at Δ = 0.00625 m). `generate_model_fast` does not have this problem.
 
