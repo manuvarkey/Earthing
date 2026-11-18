@@ -55,15 +55,29 @@ eplot_linewidth = 3
 
 ## Resistance functions
     
-def resistance_plate(rho, A, h):
-    """ As per ENA EREC S34
-    
+def resistance_plate(rho, A, h, method='IEEE142'):
+    """ Resistance of a buried horizontal plate
+
         rho: resistivity (ohm-m)
-        A: plate area (m^2)
-        h = burrial depth
+        A: plate area, one face (m^2); a square plate is treated as a
+           round plate of equal area, radius a = sqrt(A/pi)
+        h: burial depth (m)
+        method: 'IEEE142' - Dwight, IEEE Std 142-2007 Table 4-5, buried
+                            horizontal round plate at depth s/2 (default):
+                            rho/(8a) + rho/(4 pi s)(1 - 7a^2/(12 s^2)
+                            + 33 a^4/(40 s^4)), s = 2h. Series form; use
+                            for h greater than about a/2.
+                'S34'     - ENA EREC S34 Formula R2:
+                            rho/(8a)(1 + a/(2.5 h + a))
     """
-    r = sqrt(A/pi)
-    return rho/(8*r)*(1 + r/(2.5*h+r))
+    a = sqrt(A/pi)
+    if method == 'IEEE142':
+        s = 2*h
+        return rho/(8*a) + rho/(4*pi*s)*(1 - 7*a**2/(12*s**2)
+                                         + 33*a**4/(40*s**4))
+    elif method == 'S34':
+        return rho/(8*a)*(1 + a/(2.5*h + a))
+    raise ValueError("method must be 'IEEE142' or 'S34'")
 
 def resistance_pipe(rho, L, d):
     """ As per IEEE 80
@@ -74,7 +88,7 @@ def resistance_pipe(rho, L, d):
     """
     return rho/(2*pi*L)*(log(8*L/d) - 1)
 
-def resistance_strip(rho, L, w, t, method='S34', thickness=0.0):
+def resistance_strip(rho, L, w, t, method='IEEE142', thickness=0.0):
     """ Resistance of a straight horizontal strip or round conductor
 
         rho: resistivity (ohm-m)
@@ -82,24 +96,20 @@ def resistance_strip(rho, L, w, t, method='S34', thickness=0.0):
         w: depth of burial (m)
         t: width of strip, or 2 x diameter for a round conductor (m)
         method: formula to use
-            'IS3043'  - alias of 'IS3043:1987'
-            'IS3043:1987' - IS 3043:1987: rho/(2 pi L) ln(2 L^2/(w t))
-            'IS3043:2018' - IS 3043:2018 clause 14.2.3:
-                        rho/(2 pi L) ln(4 L/t). Ignores w. Same as 'S34'.
-            'S34'     - ENA EREC S34 Formula R7 (from BS EN 50522), default:
+            'IEEE142' - Dwight, IEEE Std 142-2007 Table 4-5, buried
+                        horizontal strip of width t and given thickness
+                        (thickness < t/8), at depth w (default). For a
+                        round conductor, t = 2 x diameter gives a thin
+                        strip of the same equivalent radius (within about
+                        1 % of the Table 4-5 buried wire formula).
+            'S34'     - ENA EREC S34 Formula R7 (from BS EN 50522; same as
+                        IS 3043:2018 clause 14.2.3):
                         rho/(2 pi L) ln(2 L/d), d = t/2 (half-width of tape
                         or diameter of round conductor). Ignores w; valid
                         for burial depth 0.5-0.6 m and L <= 60 sqrt(rho).
-            'IEEE142' - Dwight, IEEE Std 142-2007 Table 4-5, buried
-                        horizontal strip of width t and given thickness
-                        (thickness < t/8), at depth w.
         thickness: strip thickness (m), used by 'IEEE142' only
     """
-    if method in ('IS3043', 'IS3043:1987'):
-        return rho/(2*pi*L)*log(2*L**2/(w*t))
-    elif method == 'IS3043:2018':
-        return rho/(2*pi*L)*log(4*L/t)
-    elif method == 'S34':
+    if method == 'S34':
         return rho/(2*pi*L)*log(2*L/(t/2))
     elif method == 'IEEE142':
         Lh = L/2  # Table 4-5 uses length 2L
@@ -107,8 +117,7 @@ def resistance_strip(rho, L, w, t, method='S34', thickness=0.0):
         return rho/(4*pi*Lh)*(log(4*Lh/a) + (a**2 - pi*a*b)/(2*(a + b)**2)
                               + log(4*Lh/s) - 1 + s/(2*Lh)
                               - s**2/(16*Lh**2) + s**4/(512*Lh**4))
-    raise ValueError("method must be 'IS3043', 'IS3043:1987', "
-                     "'IS3043:2018', 'S34' or 'IEEE142'")
+    raise ValueError("method must be 'IEEE142' or 'S34'")
         
 def resistance_grid(rho, A, L, h=0.5):
     """ Return grid resistance as per IEEE 80
@@ -529,17 +538,27 @@ def max_current_density(rho, t, method='S34'):
 
         rho: resistivity (ohm-m)
         t: Loading time (s)
-        method: 'S34'    - ENA EREC S34 Formula C2, 1e3 sqrt(57.7/(rho t)),
-                           as used for ENA TS 41-24 Table 8 (default)
-                'IS3043' - IS 3043:2018 clause 15.3 b),
-                           7.57e3/sqrt(rho t) (0.34 % lower)
+        method: 'S34'     - ENA EREC S34 Formula C2, 1e3 sqrt(57.7/(rho t)),
+                            as used for ENA TS 41-24 Table 8 (default)
+                'IEEE142' - IEEE Std 142-2007 Eq. (4.2), I = 1140 d/sqrt(rho t)
+                            A per metre of rod (d in mm, rho in ohm-cm),
+                            divided by the rod surface area per metre
+                            (pi d/1000 m^2): 1.14e5/pi / sqrt(rho t)
+                            = 3.63e4/sqrt(rho t), rho in ohm-m.
+                            Eq. (4.2) is stated for rods, to prevent
+                            smoking electrodes; it is about 4.8 times the
+                            'S34' and 'IS3043' limits.
+                'IS3043'  - IS 3043:2018 clause 15.3 b),
+                            7.57e3/sqrt(rho t) (0.34 % below 'S34')
         return (A/m2)
     """
-    if method == 'IS3043':
+    if method == 'IEEE142':
+        return 1.14e5/pi/sqrt(rho*t)
+    elif method == 'IS3043':
         return 7.57e3/sqrt(rho*t)
     elif method == 'S34':
         return 1e3*sqrt(57.7/(rho*t))
-    raise ValueError("method must be 'IS3043' or 'S34'")
+    raise ValueError("method must be 'IEEE142', 'S34' or 'IS3043'")
 
 def current_ratio(rho, R, C, Un, A, L):
     """ Current ratio by C factor method as per ENA EREC S34

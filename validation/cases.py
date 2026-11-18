@@ -167,6 +167,14 @@ def s34_r4_grid(rho, A, L_E):
     return rho / (4 * sqrt(A / pi)) + rho / L_E
 
 
+def ieee142_dwight_plate(rho, a, depth):
+    """IEEE Std 142-2007 Table 4-5, buried horizontal round plate (radius a,
+    depth s/2)."""
+    s = 2 * depth
+    return rho / (8 * a) + rho / (4 * pi * s) * (1 - 7 * a ** 2 / (12 * s ** 2)
+                                                 + 33 * a ** 4 / (40 * s ** 4))
+
+
 def s34_r7_strip(rho, L_H, d):
     """ENA EREC S34 B.1.8 Formula R7 (d = diameter or tape half-width)."""
     return rho / (2 * pi * L_H) * log(2 * L_H / d)
@@ -424,17 +432,36 @@ def _s34_cases() -> List[Case]:
             cid, S34, "B.1.3, Formula R2",
             "Plate: rho = 100, A = {:.3g} m2, h = {} m (formula identity)".format(A, h),
             "resistance_plate",
-            (lambda A=A, h=h: e.resistance_plate(100, A, h)),
+            (lambda A=A, h=h: e.resistance_plate(100, A, h, method='S34')),
             s34_r2_plate(100, A, h), "ohm", rtol=1e-9))
+    for cid, A, h in [("IEEE142-T4-5-plate-1m2-0.5m", 1.0, 0.5),
+                      ("IEEE142-T4-5-plate-1.44m2-1m", 1.44, 1.0)]:
+        cases.append(Case(
+            cid, IEEE142, "Table 4-5, buried horizontal round plate",
+            "resistance_plate default: rho = 100, A = {:.3g} m2, h = {} m "
+            "(formula identity)".format(A, h),
+            "resistance_plate", (lambda A=A, h=h: e.resistance_plate(100, A, h)),
+            ieee142_dwight_plate(100, sqrt(A / pi), h), "ohm", rtol=1e-9))
+    cases.append(Case(
+        "IEEE142-T4-5-plate-deep-limit", IEEE142, "Table 4-5 (s -> infinity)",
+        "Deep plate tends to rho/(8a)", "resistance_plate",
+        lambda: e.resistance_plate(100, 1.0, 1e6), 100 / (8 * sqrt(1 / pi)), "ohm",
+        rtol=1e-5))
+    cases.append(Case(
+        "IEEE142-plate-vs-S34-R2", IEEE142, "Table 4-5 vs ENA S34 Formula R2",
+        "resistance_plate default (IEEE 142) against S34 R2, 1 m2 at 0.5 m",
+        "resistance_plate", lambda: e.resistance_plate(100, 1.0, 0.5),
+        s34_r2_plate(100, 1.0, 0.5), "ohm", rtol=None,
+        note="Two independent approximations; shown for comparison."))
     cases.append(Case(
         "S34-R2-plate-surface-limit", S34, "B.1.3, Formula R2 (h -> 0)",
         "Plate at the surface tends to rho/(4r)", "resistance_plate",
-        lambda: e.resistance_plate(100, 1.0, 1e-9),
+        lambda: e.resistance_plate(100, 1.0, 1e-9, method='S34'),
         100 / (4 * sqrt(1 / pi)), "ohm", rtol=1e-6))
     cases.append(Case(
         "S34-R2-plate-deep-limit", S34, "B.1.3, Formula R2 (h -> infinity)",
         "Deep plate tends to rho/(8r)", "resistance_plate",
-        lambda: e.resistance_plate(100, 1.0, 1e6),
+        lambda: e.resistance_plate(100, 1.0, 1e6, method='S34'),
         100 / (8 * sqrt(1 / pi)), "ohm", rtol=1e-5))
 
     # Formula R6, combined grid and rods.
@@ -532,6 +559,11 @@ def _s34_cases() -> List[Case]:
         "resistance_strip",
         lambda: e.resistance_strip(100, 20, 0.5, 0.025, method='IEEE142', thickness=0.003),
         ieee142_dwight_strip(100, 20, 0.025, 0.003, 0.5), "ohm", rtol=1e-9))
+    cases.append(Case(
+        "IEEE142-T4-5-strip-default", IEEE142, "Table 4-5, buried horizontal strip",
+        "resistance_strip default: 20 m x 25 mm thin tape at 0.5 m (formula identity)",
+        "resistance_strip", lambda: e.resistance_strip(100, 20, 0.5, 0.025),
+        ieee142_dwight_strip(100, 20, 0.025, 0.0, 0.5), "ohm", rtol=1e-9))
 
     # Appendix D.4.1, C-factor method.
     cases.append(Case(
@@ -568,6 +600,13 @@ def _s34_cases() -> List[Case]:
         "Coefficient: J * sqrt(rho * t), default method (formula identity)",
         "max_current_density",
         lambda: e.max_current_density(1, 1), 1e3 * sqrt(57.7), "A/m2", rtol=1e-9))
+    cases.append(Case(
+        "IEEE142-Eq4.2-current-density", IEEE142, "4.1.6, Eq. (4.2)",
+        "method='IEEE142': current per metre of a 16 mm rod, rho = 100, t = 1 s",
+        "max_current_density",
+        lambda: e.max_current_density(100, 1, method='IEEE142') * pi * 0.016,
+        1140 * 16 / sqrt(100 * 100 * 1), "A/m", rtol=1e-9,
+        note="Eq. (4.2) uses rho in ohm-cm and d in mm; converted to A/m2 by the rod surface area."))
     cases.append(Case(
         "S34-C2-coefficient-IS3043", S34, "B.2.2, Formula C2",
         "Coefficient with method='IS3043' against Formula C2", "max_current_density",
@@ -1060,24 +1099,30 @@ def _numerical_cases() -> List[Case]:
             (lambda delta=delta: _rod_network(delta).get_resistance()[0]),
             s34_r1_rod(75, 3.6, 0.016), "ohm", rtol=None, kind=NUMERICAL))
 
-    # The IS 3043:1987 strip formula is not in the reference set. Compared
-    # with S34 Formula R7 and with the solver for context.
+    # Strip: the solver against the IEEE 142 Dwight formula (thin strip),
+    # which includes burial depth.
     cases.append(Case(
-        "INFO-strip-vs-S34-R7", S34, "B.1.8 Formula R7",
-        "resistance_strip(method='IS3043:1987'): 20 m x 25 mm tape at 0.5 m, rho = 100",
-        "resistance_strip",
-        lambda: e.resistance_strip(100, 20, 0.5, 0.025, method='IS3043:1987'),
-        s34_r7_strip(100, 20, 0.0125), "ohm", rtol=None,
-        note=("The IS 3043:1987 formula includes burial depth. R7 (and "
-              "IS 3043:2018) omit it, so no pass/fail is applied.")))
-    cases.append(Case(
-        "INFO-strip-vs-Network", S34, "-",
-        "Network: same 20 m tape, compared with resistance_strip",
+        "NUM-strip-vs-IEEE142", IEEE142, "Table 4-5, buried horizontal strip",
+        "Network: 20 m x 25 mm tape at 0.5 m, rho = 100",
         "Network.get_resistance",
         lambda: _strip_network(DELTA).get_resistance()[0],
-        e.resistance_strip(100, 20, 0.5, 0.025), "ohm", rtol=None, kind=NUMERICAL,
-        note=("Reference here is resistance_strip default (S34 R7), which "
-              "ignores burial depth; not a check of the solver.")))
+        ieee142_dwight_strip(100, 20, 0.025, 0.0, 0.5), "ohm",
+        rtol=RTOL_NUM_RESISTANCE, kind=NUMERICAL, note=delta_note))
+    cases.append(Case(
+        "INFO-strip-S34-R7-vs-Network", S34, "B.1.8 Formula R7",
+        "Network: same 20 m tape, compared with S34 Formula R7",
+        "Network.get_resistance",
+        lambda: _strip_network(DELTA).get_resistance()[0],
+        s34_r7_strip(100, 20, 0.0125), "ohm", rtol=None, kind=NUMERICAL,
+        note="R7 has no burial depth term and reads about 25 % below the solver."))
+    cases.append(Case(
+        "NUM-plate-vs-IEEE142", IEEE142, "Table 4-5, buried horizontal round plate",
+        "Network: horizontal 1 m x 1 m plate at 0.5 m, rho = 100",
+        "Network.get_resistance",
+        lambda: _plate_network(DELTA).get_resistance()[0],
+        ieee142_dwight_plate(100, sqrt(1 / pi), 0.5), "ohm",
+        rtol=RTOL_NUM_RESISTANCE, kind=NUMERICAL,
+        note="Square plate compared with a round plate of equal area. " + delta_note))
 
     return cases
 
@@ -1101,39 +1146,20 @@ def _is3043_cases() -> List[Case]:
         7.57e3 / sqrt(150), "A/m2", rtol=1e-9))
 
     # Clause 14.2.3: R = 100 rho/(2 pi l) ln(4 l/d), l and d in cm, d = width
-    # of strip or twice the diameter of a round conductor.
+    # of strip or twice the diameter of a round conductor. Identical to ENA
+    # S34 Formula R7, available as resistance_strip(method='S34').
     cases.append(Case(
         "IS3043-14.2.3-strip", IS3043, "14.2.3 (p. 27)",
-        "Strip: rho = 100, l = 20 m, 25 mm wide, method='IS3043:2018' (formula identity)",
+        "Strip: rho = 100, l = 20 m, 25 mm wide, method='S34' (formula identity)",
         "resistance_strip",
-        lambda: e.resistance_strip(100, 20, 0.5, 0.025, method='IS3043:2018'),
+        lambda: e.resistance_strip(100, 20, 0.5, 0.025, method='S34'),
         100 * 100 / (2 * pi * 2000) * log(4 * 2000 / 2.5), "ohm", rtol=1e-9))
     cases.append(Case(
         "IS3043-14.2.3-round", IS3043, "14.2.3 (p. 27)",
-        "Round conductor: rho = 100, l = 20 m, 10 mm diameter (d = 2 x 10 mm)",
+        "Round conductor: rho = 100, l = 20 m, 10 mm diameter (t = 2 x 10 mm), method='S34'",
         "resistance_strip",
-        lambda: e.resistance_strip(100, 20, 0.5, 0.020, method='IS3043:2018'),
+        lambda: e.resistance_strip(100, 20, 0.5, 0.020, method='S34'),
         100 * 100 / (2 * pi * 2000) * log(4 * 2000 / 2.0), "ohm", rtol=1e-9))
-    cases.append(Case(
-        "IS3043-14.2.3-equals-S34-R7", IS3043, "14.2.3 vs ENA S34 B.1.8 Formula R7",
-        "IS 3043:2018 strip formula is identical to S34 R7 (d = half-width)",
-        "resistance_strip",
-        lambda: e.resistance_strip(100, 20, 0.5, 0.025, method='IS3043:2018'),
-        s34_r7_strip(100, 20, 0.0125), "ohm", rtol=1e-9))
-    cases.append(Case(
-        "IS3043-1987-strip-vs-2018", IS3043, "14.2.3 (p. 27)",
-        "method='IS3043:1987' against the 2018 formula",
-        "resistance_strip",
-        lambda: e.resistance_strip(100, 20, 0.5, 0.025, method='IS3043:1987'),
-        100 * 100 / (2 * pi * 2000) * log(4 * 2000 / 2.5), "ohm", rtol=None,
-        note=("The IS 3043:1987 formula ln(2 L^2/(w t)) includes burial depth "
-              "w. IS 3043:2018 prints ln(4 L/d) without depth.")))
-    cases.append(Case(
-        "IS3043-14.2.3-equals-default", IS3043, "14.2.3 (p. 27)",
-        "resistance_strip default (S34 R7) equals the IS 3043:2018 formula",
-        "resistance_strip",
-        lambda: e.resistance_strip(100, 20, 0.5, 0.025),
-        100 * 100 / (2 * pi * 2000) * log(4 * 2000 / 2.5), "ohm", rtol=1e-9))
 
     # Clause 10.3: the same limits as IEEE 80; with no surface layer
     # rho_s = rho and Cs = 1.

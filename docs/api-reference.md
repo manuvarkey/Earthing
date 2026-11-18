@@ -24,13 +24,16 @@ from earthing import (
 
 ## Resistance calculations
 
-### `resistance_plate(rho, A, h)`
+### `resistance_plate(rho, A, h, method='IEEE142')`
 
-Plate-electrode resistance calculation (ENA EREC S34).
+Resistance of a buried horizontal plate.
 
 - `rho` (`float`): soil resistivity, ohm-m.
-- `A` (`float`): plate area, m².
+- `A` (`float`): plate area (one face), m². A square plate is treated as a round plate of equal area, radius a = √(A/π).
 - `h` (`float`): burial depth, m.
+- `method` (`str`, optional):
+  - `'IEEE142'` (default): Dwight's formula for a buried horizontal round plate, IEEE Std 142-2007 Table 4-5: ρ/(8a) + ρ/(4πs)·(1 − 7a²/(12s²) + 33a⁴/(40s⁴)), with s = 2h. It is a series form; use it for depths greater than about a/2.
+  - `'S34'`: ENA EREC S34 Formula R2, ρ/(8a)·(1 + a/(2.5h + a)). Valid down to the surface.
 - Returns: resistance, ohms (`float`).
 
 ### `resistance_pipe(rho, L, d)`
@@ -42,7 +45,7 @@ Pipe-electrode resistance calculation (IEEE 80).
 - `d` (`float`): pipe diameter, m.
 - Returns: resistance, ohms (`float`).
 
-### `resistance_strip(rho, L, w, t, method='S34', thickness=0.0)`
+### `resistance_strip(rho, L, w, t, method='IEEE142', thickness=0.0)`
 
 Resistance of a straight horizontal strip or round conductor.
 
@@ -51,10 +54,8 @@ Resistance of a straight horizontal strip or round conductor.
 - `w` (`float`): burial depth, m.
 - `t` (`float`): strip width, or twice the diameter for a round conductor, m.
 - `method` (`str`, optional):
-  - `'IS3043'` or `'IS3043:1987'`: IS 3043:1987, ρ/(2πL)·ln(2L²/(w·t)).
-  - `'IS3043:2018'`: IS 3043:2018 clause 14.2.3, ρ/(2πL)·ln(4L/t). Ignores `w`. Identical to `'S34'`.
-  - `'S34'` (default): ENA EREC S34 Formula R7, ρ/(2πL)·ln(2L/d) with d = t/2 (half-width of a tape or diameter of a round conductor). Ignores `w`; valid for burial depths of 0.5–0.6 m and L ≤ 60√ρ.
-  - `'IEEE142'`: Dwight's formula for a buried horizontal strip, IEEE Std 142-2007 Table 4-5, with width `t` and thickness `thickness` at depth `w`.
+  - `'S34'`: ENA EREC S34 Formula R7 (identical to IS 3043:2018 clause 14.2.3), ρ/(2πL)·ln(2L/d) with d = t/2 (half-width of a tape or diameter of a round conductor). Ignores `w`; valid for burial depths of 0.5–0.6 m and L ≤ 60√ρ.
+  - `'IEEE142'` (default): Dwight's formula for a buried horizontal strip, IEEE Std 142-2007 Table 4-5, with width `t` and thickness `thickness` at depth `w`. For a round conductor, `t` = 2 × diameter gives a thin strip of the same equivalent radius, within about 1 % of the Table 4-5 buried-wire formula.
 - `thickness` (`float`, optional): strip thickness, m; used by `'IEEE142'` only (should be less than t/8).
 - Returns: resistance, ohms (`float`).
 
@@ -207,7 +208,10 @@ Maximum electrode current density.
 
 - `rho` (`float`): soil resistivity, ohm-m.
 - `t` (`float`): loading time, s.
-- `method` (`str`, optional): `'S34'` (default), ENA EREC S34 Formula C2, 10³·√(57.7/(ρt)), as used for ENA TS 41-24 Table 8; or `'IS3043'`, IS 3043:2018 clause 15.3, 7.57×10³/√(ρt), which is 0.34 % lower.
+- `method` (`str`, optional):
+  - `'S34'` (default): ENA EREC S34 Formula C2, 10³·√(57.7/(ρt)), as used for ENA TS 41-24 Table 8.
+  - `'IS3043'`: IS 3043:2018 clause 15.3, 7.57×10³/√(ρt), 0.34 % lower.
+  - `'IEEE142'`: IEEE Std 142-2007 Eq. 4.2, I = 1140·d/√(ρt) A per metre of rod (d in mm, ρ in Ω·cm), divided by the rod surface area per metre: 3.63×10⁴/√(ρt) with ρ in Ω·m. It is a limit against "smoking" rods and allows about 4.8 times the S34 current density. IEEE 80 has no formula, only a conservative 200 A/m² for 1 s (clause 12.3).
 - Returns: current density, A/m² (`float`).
 
 ### `current_ratio(rho, R, C, Un, A, L)`
