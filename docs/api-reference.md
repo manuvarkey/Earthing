@@ -10,7 +10,7 @@ This reference documents the public names exported by `earthing` (the module's `
 from earthing import (
     Network,
     resistance_plate, resistance_pipe, resistance_strip,
-    resistance_grid, resistance_grid_with_rods,
+    resistance_grid, resistance_grid_schwarz, resistance_grid_with_rods,
     e_step_50, e_touch_50, e_step_70, e_touch_70,
     e_mesh_step, e_mesh_step_grid,
     e_touch_external, e_touch_fence, e_touch_fence_peripheral,
@@ -69,7 +69,23 @@ Ground-grid resistance calculation (IEEE 80).
 - `h` (`float`, optional): grid burial depth, m; default `0.5`.
 - Returns: resistance, ohms (`float`).
 
-### `resistance_grid_with_rods(rho, A, L_E, L_R, N, S, d, w, b=None)`
+### `resistance_grid_schwarz(rho, A, Lc, h, d, Lr=0, nR=0, d_r=None, ratio=1.0, k1=None, k2=None)`
+
+Grid resistance, with or without rods, by Schwarz's equations (IEEE 80 Eqs. 53–56).
+
+- `rho` (`float`): soil resistivity, ohm-m.
+- `A` (`float`): area covered by the grid, m².
+- `Lc` (`float`): total length of grid conductors, m.
+- `h` (`float`): grid depth, m; 0 for conductors on the surface.
+- `d` (`float`): grid-conductor diameter, m.
+- `Lr` (`float`, optional): length of each rod, m.
+- `nR` (`int`, optional): number of rods in area A.
+- `d_r` (`float`): rod diameter, m; required when `nR` > 0.
+- `ratio` (`float`, optional): grid length-to-width ratio, used for k1 and k2.
+- `k1`, `k2` (`float`, optional): override the coefficients. By default they come from the linear equations of IEEE 80 Figure 25: curves A (h = 0), B (h = √A/10) and C (h = √A/6), interpolated linearly in h and held at curve C for deeper grids.
+- Returns: resistance, ohms (`float`).
+
+### `resistance_grid_with_rods(rho, A, L_E, L_R, N, S, d, w, b=None, method='IEEE80', h=0.5, ratio=1.0)`
 
 Grid resistance including vertical rods (ENA EREC S34).
 
@@ -81,12 +97,15 @@ Grid resistance including vertical rods (ENA EREC S34).
 - `S` (`float`): rod separation, m.
 - `d` (`float`): rod diameter, m.
 - `w` (`float`): tape width, m. Used as b = w/π when `b` is not given.
-- `b` (`float`, optional): equivalent diameter of the grid conductor in the R12 term, m. Overrides `w`.
+- `b` (`float`, optional): equivalent diameter of the grid conductor, m. Overrides `w`.
+- `method` (`str`, optional): `'IEEE80'` (default) uses Schwarz's equations through `resistance_grid_schwarz`, with `b` as the conductor diameter, depth `h` and length-to-width `ratio`; `S` is not used. `'S34'` uses ENA EREC S34 Formulae R4–R6.
+- `h` (`float`, optional): grid depth, m; `'IEEE80'` only.
+- `ratio` (`float`, optional): grid length-to-width ratio; `'IEEE80'` only.
 - Returns: combined resistance, ohms (`float`).
 
 ENA EREC S34 defines `b` inconsistently. Appendix B.1.7 prints b = w/π, which is the default. Appendix A and worked examples 6.1.1 and 6.5.1 use the conductor's equivalent diameter: b = d for a round conductor, or perimeter/π for a tape (as in Formula P1). Pass `b` to reproduce the worked examples.
 
-Factor `k` is interpolated (monotone piecewise cubic) from points digitised from ENA EREC S34 Figure B.1, which covers 0–72 rods. For `N` greater than 72, `k` is held at the chart end value of 9.2 and a `UserWarning` is issued.
+With `method='S34'`, factor `k` is interpolated (monotone piecewise cubic) from points digitised from ENA EREC S34 Figure B.1, which covers 0–72 rods. For `N` greater than 72, `k` is held at the chart end value of 9.2 and a `UserWarning` is issued.
 
 ## Touch, step, and current calculations
 

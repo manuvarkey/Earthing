@@ -80,6 +80,7 @@ Other calculations follow the same pattern:
 - `touch_limit_ts4124` and `step_limit_ts4124` look up the ENA TS 41-24 permissible potentials by fault clearance time and surface type.
 - `e_mesh_step` handles L-shaped and irregular grids. Pass `rods_on_perimeter=False` when rods are only inside the grid.
 - `e_touch_external`, `e_touch_fence`, `surface_potential_rod`, `contour_distance` and related functions implement the ENA EREC S34 surface potential formulae.
+- `resistance_grid_with_rods` defaults to Schwarz's equations (IEEE 80); `resistance_grid_schwarz` exposes them directly. Pass `method='S34'` for ENA EREC S34 Formulae R4–R6.
 - `resistance_strip`, `resistance_plate` and `max_current_density` take a `method` argument. Strip and plate default to IEEE Std 142 (Dwight); current density defaults to ENA EREC S34 Formula C2, because the IEEE 142 limit is about 4.8 times less conservative. ENA S34, IS 3043 and IEEE 142 are options where available.
 
 The functions return numerical values. The formulas and standard references are summarized in the API reference. Check the source and applicable standard before relying on a result.

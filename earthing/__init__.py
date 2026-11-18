@@ -34,7 +34,8 @@ from cycler import cycler
 
 __all__ = ["Network",
            "resistance_plate", "resistance_pipe", "resistance_strip",
-           "resistance_grid", "resistance_grid_with_rods",
+           "resistance_grid", "resistance_grid_schwarz",
+           "resistance_grid_with_rods",
            "e_step_50", "e_touch_50", "e_step_70", "e_touch_70",
            "e_mesh_step", "e_mesh_step_grid",
            "e_touch_external", "e_touch_fence", "e_touch_fence_peripheral",
@@ -162,7 +163,61 @@ def _pchip(x, xp, yp):
     return ((2*t**3 - 3*t**2 + 1)*yp[i] + (t**3 - 2*t**2 + t)*h[i]*m[i]
             + (-2*t**3 + 3*t**2)*yp[i+1] + (t**3 - t**2)*h[i]*m[i+1])
 
-def resistance_grid_with_rods(rho, A, L_E, L_R, N, S, d, w, b=None):
+def _schwarz_k(h, A, ratio):
+    """ Coefficients k1, k2 of Schwarz's formula, IEEE 80 Figure 25.
+
+        Linear equations of curves A (h = 0), B (h = sqrt(A)/10) and
+        C (h = sqrt(A)/6), interpolated linearly in h and held at curve C
+        for deeper grids. ratio = length-to-width ratio of the grid.
+    """
+    ratio = max(ratio, 1/ratio)
+    ka = (-0.04*ratio + 1.41, 0.15*ratio + 5.50)
+    kb = (-0.05*ratio + 1.20, 0.10*ratio + 4.68)
+    kc = (-0.05*ratio + 1.13, -0.05*ratio + 4.40)  # k2 as printed
+    hb, hc = sqrt(A)/10, sqrt(A)/6
+    if h <= hb:
+        f, k0, k1 = h/hb, ka, kb
+    elif h <= hc:
+        f, k0, k1 = (h - hb)/(hc - hb), kb, kc
+    else:
+        return kc
+    return tuple(x0 + (x1 - x0)*f for x0, x1 in zip(k0, k1))
+
+def resistance_grid_schwarz(rho, A, Lc, h, d, Lr=0, nR=0, d_r=None,
+                            ratio=1.0, k1=None, k2=None):
+    """ Grid resistance, with or without rods, by Schwarz's equations,
+        IEEE 80 Eqs. (53)-(56)
+
+        rho: resistivity (ohm-m)
+        A: area covered by the grid (m^2)
+        Lc: total length of grid conductors (m)
+        h: grid depth (m); h = 0 for conductors on the surface
+        d: grid conductor diameter (m)
+        Lr: length of each rod (m)
+        nR: number of rods in area A
+        d_r: rod diameter (m), required when nR > 0
+        ratio: length-to-width ratio of the grid, for k1 and k2
+        k1, k2: override the coefficients read from IEEE 80 Figure 25
+    """
+    if k1 is None or k2 is None:
+        k1_fig, k2_fig = _schwarz_k(h, A, ratio)
+        k1 = k1_fig if k1 is None else k1
+        k2 = k2_fig if k2 is None else k2
+    a = d/2
+    a_ = sqrt(a*2*h) if h > 0 else a
+    R1 = rho/(pi*Lc)*(log(2*Lc/a_) + k1*Lc/sqrt(A) - k2)  # Eq. (54)
+    if not nR:
+        return R1
+    if d_r is None:
+        raise ValueError('d_r (rod diameter) is required when nR > 0')
+    b = d_r/2
+    R2 = rho/(2*pi*nR*Lr)*(log(4*Lr/b) - 1
+                          + 2*k1*Lr/sqrt(A)*(sqrt(nR) - 1)**2)  # Eq. (55)
+    Rm = rho/(pi*Lc)*(log(2*Lc/Lr) + k1*Lc/sqrt(A) - k2 + 1)  # Eq. (56)
+    return (R1*R2 - Rm**2)/(R1 + R2 - 2*Rm)  # Eq. (53)
+
+def resistance_grid_with_rods(rho, A, L_E, L_R, N, S, d, w, b=None,
+                              method='IEEE80', h=0.5, ratio=1.0):
     """ Return grid resistance with earth rods as per ENA EREC S34
 
         rho: resistivity (ohm-m)
@@ -179,9 +234,23 @@ def resistance_grid_with_rods(rho, A, L_E, L_R, N, S, d, w, b=None):
            b = perimeter/pi as in Formula P1). Appendix B.1.7 prints
            b = w/pi, which is the default.
 
+        method: 'IEEE80' - Schwarz's equations, IEEE 80 Eqs. (53)-(56),
+                           via resistance_grid_schwarz (default). Uses b as
+                           the grid conductor diameter, h and ratio; S is
+                           not used.
+                'S34'    - ENA EREC S34 Formulae R4-R6 (below)
+        h: grid depth (m), 'IEEE80' only
+        ratio: grid length-to-width ratio, 'IEEE80' only
+
         Factor k is interpolated from ENA EREC S34 Figure B.1, which covers
         0-72 rods; for N > 72, k is held at the chart end value (9.2).
     """
+    if b is None:
+        b = w/pi
+    if method == 'IEEE80':
+        return resistance_grid_schwarz(rho, A, L_E, h, b, L_R, N, d, ratio)
+    elif method != 'S34':
+        raise ValueError("method must be 'IEEE80' or 'S34'")
     N_max = _S34_FIG_B1_K[-1, 0]
     if N > N_max:
         warnings.warn('N = {} is beyond ENA EREC S34 Figure B.1 (0-{:g} rods);'
@@ -196,8 +265,6 @@ def resistance_grid_with_rods(rho, A, L_E, L_R, N, S, d, w, b=None):
     alpha = rho/(2*pi*R_R*S)
     R2 = R_R*(1+k*alpha)/N
     
-    if b is None:
-        b = w/pi
     R12 = R1 - rho/(pi*L_E)*(log(L_R/b)-1)
     
     R_E = (R1*R2 - R12**2)/(R1 + R2 - 2*R12)

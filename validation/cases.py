@@ -189,7 +189,7 @@ def s34_k_from_package(rho, A, L_E, L_R, N, S, d, w):
     """
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", UserWarning)  # N beyond Figure B.1
-        R_E = e.resistance_grid_with_rods(rho, A, L_E, L_R, N, S, d, w)
+        R_E = e.resistance_grid_with_rods(rho, A, L_E, L_R, N, S, d, w, method="S34")
     R1 = s34_r4_grid(rho, A, L_E)
     R12 = R1 - rho / (pi * L_E) * (log(L_R / (w / pi)) - 1)
     R2 = (R12 ** 2 + R_E * R1 - 2 * R_E * R12) / (R1 - R_E)
@@ -212,6 +212,18 @@ def ieee80_em_interior_rods(rho, Lx, Ly, Lr, Nx, Ny, Nr, d, h, Ig):
                               - h / (4 * d)) + K_ii / K_h * log(8 / (pi * (2 * n - 1))))
     K_i = 0.644 + 0.148 * n
     return rho * Ig * K_m * K_i / (L_C + Lr * Nr)
+
+
+def ieee80_schwarz(rho, A, Lc, h, d, Lr, nR, d_r, k1, k2):
+    """IEEE 80 Eqs. (53)-(56) (Schwarz) with given k1, k2."""
+    a_ = sqrt(d / 2 * 2 * h) if h > 0 else d / 2
+    R1 = rho / (pi * Lc) * (log(2 * Lc / a_) + k1 * Lc / sqrt(A) - k2)
+    if not nR:
+        return R1
+    R2 = rho / (2 * pi * nR * Lr) * (log(4 * Lr / (d_r / 2)) - 1
+                                     + 2 * k1 * Lr / sqrt(A) * (sqrt(nR) - 1) ** 2)
+    Rm = rho / (pi * Lc) * (log(2 * Lc / Lr) + k1 * Lc / sqrt(A) - k2 + 1)
+    return (R1 * R2 - Rm ** 2) / (R1 + R2 - 2 * Rm)
 
 
 def ieee80_cs_limit(C_s, rho_s, t_s, foot, k):
@@ -346,6 +358,66 @@ def _ieee80_cases() -> List[Case]:
         e.e_mesh_step_grid(400, 70, 70, 7.5, 11, 11, 20, 0.01, 0.5, 1908)[0],
         "V", rtol=1e-9))
 
+    # Schwarz's equations, Eqs. (53)-(56), with k1 and k2 from Figure 25.
+    # IEEE 80 gives no worked example. Curve A (h = 0) and curve B
+    # (h = sqrt(A)/10) are checked as formula identities; the grid-only
+    # result is compared with Eq. (52), which IEEE 80 says gives
+    # "practically identical" results; the Annex B examples are compared
+    # with EPRI for information.
+    cases.append(Case(
+        "IEEE80-Eq53-56-curveA", IEEE80, "Eqs. (53)-(56), Figure 25 curve A",
+        "Schwarz, conductors on the surface (h = 0), Example 2 layout (formula identity)",
+        "resistance_grid_schwarz",
+        lambda: e.resistance_grid_schwarz(400, 4900, 1540, 0, 0.01, 7.5, 20, 0.016, 1),
+        ieee80_schwarz(400, 4900, 1540, 0, 0.01, 7.5, 20, 0.016, -0.04 + 1.41, 0.15 + 5.50),
+        "ohm", rtol=1e-9))
+    cases.append(Case(
+        "IEEE80-Eq53-56-curveB", IEEE80, "Eqs. (53)-(56), Figure 25 curve B",
+        "Schwarz at h = sqrt(A)/10 = 7 m, ratio 2 (formula identity)",
+        "resistance_grid_schwarz",
+        lambda: e.resistance_grid_schwarz(400, 4900, 1540, 7, 0.01, 7.5, 20, 0.016, 2),
+        ieee80_schwarz(400, 4900, 1540, 7, 0.01, 7.5, 20, 0.016, -0.1 + 1.20, 0.2 + 4.68),
+        "ohm", rtol=1e-9))
+    cases.append(Case(
+        "IEEE80-Eq53-56-curveC", IEEE80, "Eqs. (53)-(56), Figure 25 curve C",
+        "Schwarz at h = 12 m > sqrt(A)/6, ratio 3 (formula identity, k2 as printed)",
+        "resistance_grid_schwarz",
+        lambda: e.resistance_grid_schwarz(400, 4900, 1540, 12, 0.01, 7.5, 20, 0.016, 3),
+        ieee80_schwarz(400, 4900, 1540, 12, 0.01, 7.5, 20, 0.016, -0.15 + 1.13, -0.15 + 4.40),
+        "ohm", rtol=1e-9,
+        note=("Figure 25(b) prints k2 = -0.05x + 4.40 for curve C, but the "
+              "plotted curve rises with x.")))
+    cases.append(Case(
+        "IEEE80-Eq54-vs-Eq52-B1", IEEE80, "14.2, Eq. (52) vs Eq. (54)",
+        "Schwarz grid only vs Sverak Eq. (52): Example 1 grid (2.78 ohm)",
+        "resistance_grid_schwarz",
+        lambda: e.resistance_grid_schwarz(400, 4900, 1540, 0.5, 0.01),
+        2.78, "ohm", rtol=0.05,
+        note=("IEEE 80 states that Eq. (52) and Schwarz give practically "
+              "identical results for grids without rods.")))
+    cases.append(Case(
+        "IEEE80-R6-default-is-Schwarz", IEEE80, "Eqs. (53)-(56)",
+        "resistance_grid_with_rods default (method='IEEE80') equals resistance_grid_schwarz",
+        "resistance_grid_with_rods",
+        lambda: e.resistance_grid_with_rods(400, 4900, 1540, 7.5, 20, 14, 0.016, None, b=0.01),
+        e.resistance_grid_schwarz(400, 4900, 1540, 0.5, 0.01, 7.5, 20, 0.016),
+        "ohm", rtol=1e-9))
+    for cid, desc, args, ref in [
+        ("IEEE80-Schwarz-vs-EPRI-B2", "Example 2: 70 m x 70 m, 20 rods x 7.5 m",
+         (400, 4900, 1540, 0.5, 0.01, 7.5, 20, 0.016, 1), 2.52),
+        ("IEEE80-Schwarz-vs-EPRI-B3", "Example 3: 63 m x 84 m, 38 rods x 10 m",
+         (400, 5292, 1659, 0.5, 0.01, 10, 38, 0.016, 84 / 63), 2.28),
+        ("IEEE80-Schwarz-vs-EPRI-B4", "Example 4: L-shaped, 24 rods x 7.5 m",
+         (400, 4900, 1575, 0.5, 0.01, 7.5, 24, 0.016, 105 / 70), 2.34),
+    ]:
+        cases.append(Case(
+            cid, IEEE80, "Annex B (EPRI TR-100622 result)",
+            "Schwarz grid resistance, " + desc, "resistance_grid_schwarz",
+            (lambda args=args: e.resistance_grid_schwarz(*args)), ref, "ohm",
+            rtol=None,
+            note=("Rod diameter 16 mm assumed. Schwarz is a conservative "
+                  "approximation; shown for comparison with EPRI.")))
+
     # Rods inside the grid only: K_ii from Eq. (82), L_M from Eq. (90).
     # IEEE 80 has no worked example, so the formula is checked as printed.
     cases.append(Case(
@@ -474,19 +546,19 @@ def _s34_cases() -> List[Case]:
         "S34-6.1.1-RE", S34, "6.1.1 (p. 21), Formulae R4-R6",
         "30 m x 20 m grid (L_E = 140 m) + 10 rods x 3.6 m, rho = 75",
         "resistance_grid_with_rods",
-        lambda: e.resistance_grid_with_rods(75, 600, 140, 3.6, 10, 10, 0.016, pi * 0.01),
+        lambda: e.resistance_grid_with_rods(75, 600, 140, 3.6, 10, 10, 0.016, pi * 0.01, method="S34"),
         1.62, "ohm", note=r6_note))
     cases.append(Case(
         "S34-6.5.1-RE", S34, "6.5.1 (p. 38), Formulae R4-R6",
         "3 m x 3 m grid (L_E = 12 m) + 4 rods x 2.4 m, rho = 50",
         "resistance_grid_with_rods",
-        lambda: e.resistance_grid_with_rods(50, 9, 12, 2.4, 4, 3, 0.016, pi * 0.01),
+        lambda: e.resistance_grid_with_rods(50, 9, 12, 2.4, 4, 3, 0.016, pi * 0.01, method="S34"),
         6.57, "ohm", note=r6_note))
     cases.append(Case(
         "S34-6.1.1-RE-w=d", S34, "6.1.1 (p. 21) vs B.1.7",
         "Same as S34-6.1.1-RE but passing w = 0.01 m (b = w/pi)",
         "resistance_grid_with_rods",
-        lambda: e.resistance_grid_with_rods(75, 600, 140, 3.6, 10, 10, 0.016, 0.01),
+        lambda: e.resistance_grid_with_rods(75, 600, 140, 3.6, 10, 10, 0.016, 0.01, method="S34"),
         1.62, "ohm", rtol=None,
         note=("Shows the effect of S34's b inconsistency: Formula R6 as "
               "printed (b = w/pi) gives a lower R_E than the worked example.")))
@@ -494,7 +566,7 @@ def _s34_cases() -> List[Case]:
         "S34-R6-identity", S34, "B.1.5-B.1.7, Formulae R4, R5, R6",
         "R_E vs Formulae R4-R6 as printed (k = 4.9, b = w/pi)",
         "resistance_grid_with_rods",
-        lambda: e.resistance_grid_with_rods(75, 600, 140, 3.6, 10, 10, 0.016, 0.025),
+        lambda: e.resistance_grid_with_rods(75, 600, 140, 3.6, 10, 10, 0.016, 0.025, method="S34"),
         _s34_r6_reference(75, 600, 140, 3.6, 10, 10, 0.016, 0.025, k=4.9),
         "ohm", rtol=0.002,
         note="0.2 % allows for the package's interpolated k (4.854) vs 4.9."))
@@ -514,7 +586,7 @@ def _s34_cases() -> List[Case]:
     ]:
         cases.append(Case(
             cid, S34, clause, desc, "resistance_grid_with_rods",
-            (lambda args=args: e.resistance_grid_with_rods(*args, None, b=0.01)),
+            (lambda args=args: e.resistance_grid_with_rods(*args, None, b=0.01, method="S34")),
             ref, "ohm", note=b_note))
 
     # Factor k (Figure B.1), backed out from resistance_grid_with_rods.
