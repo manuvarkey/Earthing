@@ -74,9 +74,9 @@ Not covered:
 
 ## Findings
 
-Latest results: 139 passed, 3 failed (the first two findings below), plus 10 informational cases. See `report.md`.
+Latest results: 153 cases, 142 passed, 1 failed (finding 2 below), 10 informational. See `report.md`. The first recorded run (commit `d773f36`) had 152 cases: 139 passed and 3 failed. The fix for finding 1 turned two failures into passes and added one case.
 
-1. **The factor k in `resistance_grid_with_rods` diverges above 64 rods.** The 5th-order polynomial fitted to Figure B.1 gives k = 9.59 at 68 rods and 10.73 at 72, where the chart reads 9.07 and 9.16. It reaches 72.9 at 100 rods. Figure B.1 covers 0–72 rods. Piecewise interpolation of the digitised points, held constant beyond the last point, would remove the error.
+1. **Fixed: the factor k in `resistance_grid_with_rods` diverged above 64 rods.** The 5th-order polynomial fitted to Figure B.1 gave k = 9.59 at 68 rods, 10.73 at 72 and 72.9 at 100, where the chart reads 9.07, 9.16 and ends at 72 rods. The package now uses monotone piecewise cubic interpolation of the digitised points, with a point added at 72 rods (9.2). For more than 72 rods it holds k at 9.2 and issues a warning. Case `S34-FigB1-k-N100-beyond-chart` guards this.
 2. **The `Network` solver depends on discretisation size and does not converge.** A single 3.6 m rod comes out 9 % above Formula R1 at Δ = 0.2 m and 24 % above at 0.4 m. The error is smallest near Δ = 0.05 m and grows again below that: +2.5 % at 0.025 m. Each segment is modelled as a disc of equal area, so the effective conductor radius changes with Δ. Grid results at Δ = 0.2 m agree with EPRI to within 0.2 % for resistance and 6 % for mesh voltage.
 3. **ENA S34 is inconsistent about the parameter b in Formula R6.** Appendix B defines b = w/π, and the package follows it. Worked examples 6.1.1 and 6.5.1 substitute b = 0.01 m directly. To reproduce the worked examples for a round conductor of diameter d, pass `w = pi * d`. Passing `w = d` gives R_E 5.7 % lower (1.53 Ω instead of 1.62 Ω).
 4. **Mesh voltage depends on how a round conductor is turned into a strip.** With strip width 2d (equivalent radius w/4) the IEEE Example 1 mesh voltage is +5.9 % against EPRI. With the equal-area width π·d/2 it is +12.96 %.

@@ -71,6 +71,8 @@ Grid resistance including vertical rods (ENA EREC S34).
 - `w` (`float`): tape width, m.
 - Returns: combined resistance, ohms (`float`).
 
+Factor `k` is interpolated (monotone piecewise cubic) from points digitised from ENA EREC S34 Figure B.1, which covers 0–72 rods. For `N` greater than 72, `k` is held at the chart end value of 9.2 and a `UserWarning` is issued.
+
 ## Touch, step, and current calculations
 
 ### `e_step_70(rho, rho_s, h_s, t_s)`

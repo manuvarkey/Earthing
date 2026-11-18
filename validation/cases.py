@@ -170,7 +170,9 @@ def s34_k_from_package(rho, A, L_E, L_R, N, S, d, w):
     is inverted for k. R1, R12 and R_R do not depend on k, so this recovers
     exactly the k value the package used.
     """
-    R_E = e.resistance_grid_with_rods(rho, A, L_E, L_R, N, S, d, w)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)  # N beyond Figure B.1
+        R_E = e.resistance_grid_with_rods(rho, A, L_E, L_R, N, S, d, w)
     R1 = s34_r4_grid(rho, A, L_E)
     R12 = R1 - rho / (pi * L_E) * (log(L_R / (w / pi)) - 1)
     R2 = (R12 ** 2 + R_E * R1 - 2 * R_E * R12) / (R1 - R_E)
@@ -358,7 +360,7 @@ def _s34_cases() -> List[Case]:
         lambda: e.resistance_grid_with_rods(75, 600, 140, 3.6, 10, 10, 0.016, 0.025),
         _s34_r6_reference(75, 600, 140, 3.6, 10, 10, 0.016, 0.025, k=4.9),
         "ohm", rtol=0.002,
-        note="0.2 % allows for the package's polynomial k (4.865) vs 4.9."))
+        note="0.2 % allows for the package's interpolated k (4.854) vs 4.9."))
 
     # Factor k (Figure B.1), backed out from resistance_grid_with_rods.
     for N, k_ref, src in S34_FIG_B1_K:
@@ -371,6 +373,16 @@ def _s34_cases() -> List[Case]:
             (lambda N=N: s34_k_from_package(100, 10000, 400, 3.6, N, 400 / N, 0.016, 0.025)),
             k_ref, "-", rtol=None, atol=0.15 if src is None else 0.05,
             note=("Chart reading accuracy about +/-0.1." if src is None else "")))
+    # Beyond the chart, k must stay bounded at the chart end value rather than
+    # be extrapolated (a polynomial fit used to give k = 72.9 at 100 rods).
+    cases.append(Case(
+        "S34-FigB1-k-N100-beyond-chart", S34,
+        "Figure B.1 (p. 48), chart end value (72 rods)",
+        "Factor k for 100 rods, outside the 0-72 rod chart range",
+        "resistance_grid_with_rods",
+        lambda: s34_k_from_package(100, 10000, 400, 3.6, 100, 4.0, 0.016, 0.025),
+        9.16, "-", rtol=None, atol=0.15,
+        note="Figure B.1 ends at 72 rods; k should be held near its end value."))
 
     # Formula R7 + R10 / resistance_parallel: section 6.5.6 option 2.
     r_eh = s34_r7_strip(50, 20, 0.00944)

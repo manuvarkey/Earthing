@@ -21,6 +21,7 @@
 #
 
 from math import sin, cos, tan, atan, log, sqrt, pi
+import warnings
 
 import numpy as np
 from numpy.linalg import norm, solve
@@ -88,9 +89,42 @@ def resistance_grid(rho, A, L, h=0.5):
     """
     return rho*(1/L + 1/sqrt(20*A)*(1 + 1/(1+h*sqrt(20/A))))
 
+# Factor k against total number of rods, digitised from ENA EREC S34
+# Figure B.1 (chart range 0-72 rods)
+_S34_FIG_B1_K = np.array([[0, 0], [4, 2.6], [8, 4.3], [12, 5.3], [16, 6],
+                          [20, 6.5], [24, 6.8], [40, 8], [64, 9], [72, 9.2]])
+
+def _pchip(x, xp, yp):
+    """ Monotone piecewise cubic Hermite interpolation (Fritsch-Carlson)
+        of scalar x on the points (xp, yp). Does not overshoot the data.
+    """
+    xp = np.asarray(xp, dtype=float)
+    yp = np.asarray(yp, dtype=float)
+    h = np.diff(xp)
+    delta = np.diff(yp) / h
+    # Derivatives at the data points
+    m = np.zeros_like(yp)
+    for i in range(1, len(xp) - 1):
+        if delta[i-1] * delta[i] > 0:
+            w1 = 2*h[i] + h[i-1]
+            w2 = h[i] + 2*h[i-1]
+            m[i] = (w1 + w2) / (w1/delta[i-1] + w2/delta[i])
+    for i, j, k in ((0, 0, 1), (-1, -1, -2)):  # one-sided end derivatives
+        hj, hk = h[j], h[k]
+        d = ((2*hj + hk)*delta[j] - hj*delta[k]) / (hj + hk)
+        if np.sign(d) != np.sign(delta[j]):
+            d = 0.0
+        elif np.sign(delta[j]) != np.sign(delta[k]) and abs(d) > abs(3*delta[j]):
+            d = 3*delta[j]
+        m[i] = d
+    i = min(max(np.searchsorted(xp, x) - 1, 0), len(xp) - 2)
+    t = (x - xp[i]) / h[i]
+    return ((2*t**3 - 3*t**2 + 1)*yp[i] + (t**3 - 2*t**2 + t)*h[i]*m[i]
+            + (-2*t**3 + 3*t**2)*yp[i+1] + (t**3 - t**2)*h[i]*m[i+1])
+
 def resistance_grid_with_rods(rho, A, L_E, L_R, N, S, d, w):
     """ Return grid resistance with earth rods as per ENA EREC S34
-    
+
         rho: resistivity (ohm-m)
         A: area occupied by the ground grid (m^2)
         L_E: length of horizontal electrode (m)
@@ -99,12 +133,16 @@ def resistance_grid_with_rods(rho, A, L_E, L_R, N, S, d, w):
         s: seperation between rods
         d: diameter of rod electrode
         w: width of tape
+
+        Factor k is interpolated from ENA EREC S34 Figure B.1, which covers
+        0-72 rods; for N > 72, k is held at the chart end value (9.2).
     """
-    data = np.array([[0,0], [4,2.6], [8,4.3], [12,5.3], 
-                     [16,6], [20,6.5], [24,6.8], [40,8], [64,9]])
-    fit = np.polyfit(data[:,0], data[:,1], 5)
-    poly = np.poly1d(fit)
-    k = poly(N)  # Use polynomial fit to get k
+    N_max = _S34_FIG_B1_K[-1, 0]
+    if N > N_max:
+        warnings.warn('N = {} is beyond ENA EREC S34 Figure B.1 (0-{:g} rods);'
+                      ' factor k held at {:g}'.format(N, N_max,
+                                                     _S34_FIG_B1_K[-1, 1]))
+    k = _pchip(min(N, N_max), _S34_FIG_B1_K[:,0], _S34_FIG_B1_K[:,1])
 
     r = sqrt(A/pi)
     R1 = rho/(4*r) + rho/L_E
