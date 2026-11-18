@@ -20,7 +20,7 @@
 #  
 #
 
-from math import sin, cos, tan, atan, log, sqrt, pi
+from math import sin, cos, tan, atan, asin, log, sqrt, pi, inf
 import warnings
 
 import numpy as np
@@ -34,8 +34,13 @@ from cycler import cycler
 
 __all__ = ["Network",
            "resistance_plate", "resistance_pipe", "resistance_strip",
-           "resistance_grid", "resistance_grid_with_rods", 
-           "e_step_70", "e_touch_70", "e_mesh_step_grid",
+           "resistance_grid", "resistance_grid_with_rods",
+           "e_step_50", "e_touch_50", "e_step_70", "e_touch_70",
+           "e_mesh_step", "e_mesh_step_grid",
+           "e_touch_external", "e_touch_fence", "e_touch_fence_peripheral",
+           "e_step_external", "surface_potential_hemisphere",
+           "surface_potential_rod", "surface_potential_grid",
+           "contour_distance", "touch_limit_ts4124", "step_limit_ts4124",
            "fault_current", "max_current_density", "current_ratio",
            "resistance_parallel", "rectangle"]
 
@@ -69,15 +74,35 @@ def resistance_pipe(rho, L, d):
     """
     return rho/(2*pi*L)*(log(8*L/d) - 1)
 
-def resistance_strip(rho, L, w, t):
-    """ Resistance calculation as per IS-3043
-    
+def resistance_strip(rho, L, w, t, method='IS3043', thickness=0.0):
+    """ Resistance of a straight horizontal strip or round conductor
+
         rho: resistivity (ohm-m)
         L: length of strip (m)
         w: depth of burial (m)
-        t: thickness of strip/ 2 x dia for pipe  (m)
+        t: width of strip, or 2 x diameter for a round conductor (m)
+        method: formula to use
+            'IS3043'  - IS 3043: rho/(2 pi L) ln(2 L^2/(w t)) (default)
+            'S34'     - ENA EREC S34 Formula R7 (from BS EN 50522):
+                        rho/(2 pi L) ln(2 L/d), d = t/2 (half-width of tape
+                        or diameter of round conductor). Ignores w; valid
+                        for burial depth 0.5-0.6 m and L <= 60 sqrt(rho).
+            'IEEE142' - Dwight, IEEE Std 142-2007 Table 4-5, buried
+                        horizontal strip of width t and given thickness
+                        (thickness < t/8), at depth w.
+        thickness: strip thickness (m), used by 'IEEE142' only
     """
-    return rho/(2*pi*L)*log(2*L**2/(w*t))
+    if method == 'IS3043':
+        return rho/(2*pi*L)*log(2*L**2/(w*t))
+    elif method == 'S34':
+        return rho/(2*pi*L)*log(2*L/(t/2))
+    elif method == 'IEEE142':
+        Lh = L/2  # Table 4-5 uses length 2L
+        a, b, s = t, thickness, 2*w
+        return rho/(4*pi*Lh)*(log(4*Lh/a) + (a**2 - pi*a*b)/(2*(a + b)**2)
+                              + log(4*Lh/s) - 1 + s/(2*Lh)
+                              - s**2/(16*Lh**2) + s**4/(512*Lh**4))
+    raise ValueError("method must be 'IS3043', 'S34' or 'IEEE142'")
         
 def resistance_grid(rho, A, L, h=0.5):
     """ Return grid resistance as per IEEE 80
@@ -122,7 +147,7 @@ def _pchip(x, xp, yp):
     return ((2*t**3 - 3*t**2 + 1)*yp[i] + (t**3 - 2*t**2 + t)*h[i]*m[i]
             + (-2*t**3 + 3*t**2)*yp[i+1] + (t**3 - t**2)*h[i]*m[i+1])
 
-def resistance_grid_with_rods(rho, A, L_E, L_R, N, S, d, w):
+def resistance_grid_with_rods(rho, A, L_E, L_R, N, S, d, w, b=None):
     """ Return grid resistance with earth rods as per ENA EREC S34
 
         rho: resistivity (ohm-m)
@@ -130,9 +155,14 @@ def resistance_grid_with_rods(rho, A, L_E, L_R, N, S, d, w):
         L_E: length of horizontal electrode (m)
         L_R: length of vertical rod electrode (m)
         N: total number of rods
-        s: seperation between rods
-        d: diameter of rod electrode
-        w: width of tape
+        S: seperation between rods (m)
+        d: diameter of rod electrode (m)
+        w: width of tape (m); used as b = w/pi when b is not given
+        b: equivalent diameter of the grid conductor (m) in R12. Overrides w.
+           S34 Appendix A and the worked examples (6.1.1, 6.5.1) use the
+           conductor diameter (b = d for a round conductor; for a tape,
+           b = perimeter/pi as in Formula P1). Appendix B.1.7 prints
+           b = w/pi, which is the default.
 
         Factor k is interpolated from ENA EREC S34 Figure B.1, which covers
         0-72 rods; for N > 72, k is held at the chart end value (9.2).
@@ -151,13 +181,38 @@ def resistance_grid_with_rods(rho, A, L_E, L_R, N, S, d, w):
     alpha = rho/(2*pi*R_R*S)
     R2 = R_R*(1+k*alpha)/N
     
-    b = w/pi
+    if b is None:
+        b = w/pi
     R12 = R1 - rho/(pi*L_E)*(log(L_R/b)-1)
     
     R_E = (R1*R2 - R12**2)/(R1 + R2 - 2*R12)
     return R_E
 
 ## Touch & step potential fucntions
+
+def _c_s(rho, rho_s, h_s):
+    """ Surface layer derating factor, IEEE 80 Eq. (27) """
+    return 1 - 0.09*(1-rho/rho_s)/(2*h_s+0.09)
+
+def e_step_50(rho, rho_s, h_s, t_s):
+    """ Tolerable step voltage, 50 kg body, as per IEEE 80 Eq. (29)
+
+        rho: resistivity (ohm-m)
+        rho_s: resistivity of surface layer (ohm-m)
+        h_s = thickness of surface layer (m)
+        t_s = shock duration (s)
+    """
+    return (1000 + 6*_c_s(rho, rho_s, h_s)*rho_s)*0.116/sqrt(t_s)
+
+def e_touch_50(rho, rho_s, h_s, t_s):
+    """ Tolerable touch voltage, 50 kg body, as per IEEE 80 Eq. (32)
+
+        rho: resistivity (ohm-m)
+        rho_s: resistivity of surface layer (ohm-m)
+        h_s = thickness of surface layer (m)
+        t_s = shock duration (s)
+    """
+    return (1000 + 1.5*_c_s(rho, rho_s, h_s)*rho_s)*0.116/sqrt(t_s)
 
 def e_step_70(rho, rho_s, h_s, t_s):
     """ Step potential calculation as per IEEE 80
@@ -167,8 +222,7 @@ def e_step_70(rho, rho_s, h_s, t_s):
         h_s = thickness of surface layer (m)
         t_s = shock duratioin (s)
     """
-    C_s = 1 - 0.09*(1-rho/rho_s)/(2*h_s+0.09)
-    E_step_70 = (1000 + 6*C_s*rho_s)*0.157/sqrt(t_s)
+    E_step_70 = (1000 + 6*_c_s(rho, rho_s, h_s)*rho_s)*0.157/sqrt(t_s)
     return E_step_70
     
 def e_touch_70(rho, rho_s, h_s, t_s):
@@ -179,13 +233,76 @@ def e_touch_70(rho, rho_s, h_s, t_s):
         h_s = thickness of surface layer (m)
         t_s = shock duratioin (s)
     """
-    C_s = 1 - 0.09*(1-rho/rho_s)/(2*h_s+0.09)
-    E_touch_70 = (1000 + 1.5*C_s*rho_s)*0.157/sqrt(t_s)
+    E_touch_70 = (1000 + 1.5*_c_s(rho, rho_s, h_s)*rho_s)*0.157/sqrt(t_s)
     return E_touch_70
     
-def e_mesh_step_grid(rho, Lx, Ly, Lr, Nx, Ny, Nr, d, h, Ig):
-    """ Touch potential calculation as per IEEE 80
-        
+def e_mesh_step(rho, Lc, Lp, A, Lx, Ly, D, Lr, Nr, d, h, Ig, Dm=None,
+                rods_on_perimeter=True):
+    """ Mesh and step voltage as per IEEE 80 Eqs. (80)-(94), for square,
+        rectangular, L-shaped and other irregular grids
+
+        Parameters:
+            rho: resistivity (ohm-m)
+            Lc: total length of horizontal grid conductor (m)
+            Lp: peripheral length of the grid (m)
+            A: area of the grid (m^2)
+            Lx: maximum length of the grid in the x direction (m)
+            Ly: maximum length of the grid in the y direction (m)
+            D: spacing between parallel conductors (m)
+            Lr: length of each earth rod (m)
+            Nr: number of earth rods
+            d: diameter of the grid conductors (m)
+            h: grid burial depth (m)
+            Ig: maximum grid current (A)
+            Dm: maximum distance between any two points on the grid (m);
+                defaults to sqrt(Lx^2 + Ly^2), i.e. n_d = 1 (square,
+                rectangular and L-shaped grids)
+            rods_on_perimeter: True for rods in the corners and along the
+                perimeter (K_ii = 1, L_M from Eq. (91)); False for no rods
+                or a few rods inside the grid only (K_ii from Eq. (82),
+                L_M from Eq. (90))
+        Return:
+            Em: mesh voltage (V)
+            Es: step voltage (V)
+    """
+    L_R = Lr*Nr  # Total length of all earth rods (m)
+    h0 = 1  # Grid reference depth (m)
+    if Dm is None:
+        Dm = sqrt(Lx**2 + Ly**2)
+
+    # Grid shape components, Eqs. (84)-(88). Each reduces to 1 for the
+    # shapes where IEEE 80 sets it to 1.
+    n_a = 2*Lc/Lp
+    n_b = sqrt(Lp/(4*sqrt(A)))
+    n_c = (Lx*Ly/A)**(0.7*A/(Lx*Ly))
+    n_d = Dm/sqrt(Lx**2 + Ly**2)
+    n = n_a*n_b*n_c*n_d
+
+    Kh = sqrt(1+h/h0)
+    perimeter_rods = Nr and rods_on_perimeter
+    if perimeter_rods:
+        Kii = 1
+    else:
+        Kii = 1/(2*n)**(2/n)
+
+    Ki = 0.644 + 0.148*n
+    Km = 1/(2*pi)*( log(D**2/(16*h*d) + (D+2*h)**2/(8*D*d) - h/(4*d))  \
+                    + Kii/Kh*log(8/(pi*(2*n-1))) )
+    Ks = 1/(pi)*( 1/(2*h) + 1/(D+h) + 1/D*(1-0.5**(n-2)) )
+
+    if perimeter_rods:
+        L_M = Lc + (1.55 + 1.22*(Lr/sqrt(Lx**2+Ly**2)))*L_R  # Eq. (91)
+    else:
+        L_M = Lc + L_R  # Eq. (90)
+    Em = rho*Km*Ki*Ig/L_M
+    Es = rho*Ks*Ki*Ig/(0.75*Lc + 0.85*L_R)
+
+    return Em, Es
+
+def e_mesh_step_grid(rho, Lx, Ly, Lr, Nx, Ny, Nr, d, h, Ig,
+                     rods_on_perimeter=True):
+    """ Mesh and step voltage of a rectangular grid as per IEEE 80
+
         Parameters:
             rho: resistivity (ohm-m)
             Lx: maximum length of the grid in the x direction (m)
@@ -196,42 +313,199 @@ def e_mesh_step_grid(rho, Lx, Ly, Lr, Nx, Ny, Nr, d, h, Ig):
             Nr: number of earth rods
             d: diameter of the earth conductors (m)
             h: grid burial depth (m)
+            Ig: maximum grid current (A)
+            rods_on_perimeter: see e_mesh_step
         Return:
             Em: mesh voltage (V)
             Es: step voltage (V)
     """
-    
+
     # Calculate geometric parameters
     A = Lx*Ly  # Area of grid
     Lc = Lx*Nx + Ly*Ny  # Total length of horizontal conductor in the grid (m)
-    L_R = Lr*Nr  # Total length of all earth rods (m)
     Lp = (Lx + Ly)*2  # Length of perimeter conductor (m)
-    D = ( (Lx/(Ny-1)) + (Ly/(Nx-1)) )/2  # Spacing between parallel conductors 
+    D = ( (Lx/(Ny-1)) + (Ly/(Nx-1)) )/2  # Spacing between parallel conductors
                                          # in the mesh (m)
-    h0 = 1  # Grid reference depth (m)
-    
-    # Grid shape components
-    n_a = 2*Lc/Lp
-    n_b = sqrt(Lp/(4*sqrt(A)))
-    n_c = (Lx*Ly/A)**(0.7*A/(Lx*Ly))
-    n_d = 1
-    n = n_a*n_b*n_c*n_d
-    
-    Kh = sqrt(1+h/h0)
-    if Nr:
-        Kii = 1
-    else:
-        Kii = 1/(2*n)**(2/n)
-    
-    Ki = 0.644 + 0.148*n
-    Km = 1/(2*pi)*( log(D**2/(16*h*d) + (D+2*h)**2/(8*D*d) - h/(4*d))  \
-                    + Kii/Kh*log(8/(pi*(2*n-1))) )
-    Ks = 1/(pi)*( 1/(2*h) + 1/(D+h) + 1/D*(1-0.5**(n-2)) )
-    
-    Em = rho*Km*Ki*Ig/( Lc + (1.55 + 1.22*(Lr/sqrt(Lx**2+Ly**2)))*L_R )
-    Es = rho*Ks*Ki*Ig/(0.75*Lc + 0.85*L_R)
-    
-    return Em, Es
+    return e_mesh_step(rho, Lc, Lp, A, Lx, Ly, D, Lr, Nr, d, h, Ig,
+                       rods_on_perimeter=rods_on_perimeter)
+
+## Surface potential functions (ENA EREC S34 Appendix B.3)
+
+def _s34_ke(h, d, D, n_A, n_B):
+    """ Factor k_e of ENA EREC S34 Formula P1 """
+    n = sqrt(n_A*n_B)
+    return 1/pi*(0.5*log(h/d) + 1/(2*h) + 1/(0.5 + D) + 1/D*(1 - 0.5**(n-2)))
+
+def _s34_kd(L_T, L_p):
+    """ Factor k_d of ENA EREC S34 Formula P1 """
+    return 0.7 + 0.3*L_T/L_p
+
+def e_touch_external(rho, I_E, L_T, L_p, h, d, D, n_A, n_B):
+    """ External touch potential 1 m beyond the edge of the grid electrode,
+        ENA EREC S34 Formula P1
+
+        rho: resistivity (ohm-m)
+        I_E: current passing to ground through the electrode (A)
+        L_T: total buried conductor length including connected rods (m)
+        L_p: perimeter conductor length including connected rods (m)
+        h: grid depth (m)
+        d: equivalent conductor diameter = perimeter of conductor/pi (m)
+        D: average spacing between parallel grid conductors (m)
+        n_A, n_B: number of parallel grid conductors in each direction
+    """
+    return _s34_ke(h, d, D, n_A, n_B)*_s34_kd(L_T, L_p)*rho*I_E/L_T
+
+def e_touch_fence(rho, I_E, L_T, L_p, h, d, D, n_A, n_B):
+    """ External touch potential at a separately earthed fence 2 m from the
+        grid electrode, ENA EREC S34 Formula P2 (k_f = 0.26 k_e)
+
+        Parameters as e_touch_external. The divisor is L_T, as in worked
+        example 6.1.5 (169 V) and as implied by "k_f is applied in place of
+        k_e"; Formula P2 as printed divides by L_p.
+    """
+    return 0.26*e_touch_external(rho, I_E, L_T, L_p, h, d, D, n_A, n_B)
+
+def e_touch_fence_peripheral(rho, I_E, L_T, L_p, h, d, S):
+    """ External touch potential at a fence with a buried peripheral
+        conductor 1 m outside it, ENA EREC S34 Formula P3, as printed:
+        k_fe = 1/2 ln(h/d) - 1/4 ln((S^2 + 0.5^2)^2) + 1/4 ln(S^4 + S^2)
+
+        rho, I_E, L_T, L_p, h, d: as e_touch_external
+        S: distance between the outermost grid conductor and the next
+           nearest parallel conductor (m)
+
+        S34 has no worked example for P3, so it is not checked against a
+        published value. The divisor is L_T, as for e_touch_fence.
+    """
+    k_fe = 0.5*log(h/d) - 0.25*log((S**2 + 0.5**2)**2) + 0.25*log(S**4 + S**2)
+    return k_fe*_s34_kd(L_T, L_p)*rho*I_E/L_T
+
+def e_step_external(rho, I_E, R_E, x):
+    """ Step potential (1 m step) on the outside edge of a grid,
+        ENA EREC S34 Formula P5
+
+        rho: resistivity (ohm-m)
+        I_E: electrode current (A)
+        R_E: electrode resistance (ohm)
+        x: distance from the centre of the grid (m), x > r = rho/(4 R_E)
+    """
+    r = rho/(4*R_E)
+    return rho*I_E/(2*pi*r)*(asin(r/x) - asin(r/(x + 1)))
+
+def surface_potential_hemisphere(rho, I, x):
+    """ Surface potential at distance x (m) from a hemisphere electrode,
+        ENA EREC S34 Formula P6.1
+    """
+    return rho*I/(2*pi*x)
+
+def surface_potential_rod(rho, I, L_R, x):
+    """ Surface potential at distance x (m) from a vertical rod of length
+        L_R (m), ENA EREC S34 Formula P6.2
+    """
+    return rho*I/(2*pi*L_R)*log(L_R/x + sqrt(1 + L_R**2/x**2))
+
+def surface_potential_grid(rho, I, R_E, x):
+    """ Surface potential at distance x (m) from the centre of a buried grid
+        of resistance R_E (ohm), ENA EREC S34 Formula P6.3; x > rho/(4 R_E)
+    """
+    r = rho/(4*R_E)
+    return rho*I/(2*pi*r)*asin(r/x)
+
+def contour_distance(A, V_x, U_E):
+    """ Distance (m) from the edge of a grid to the surface potential contour
+        V_x (V), ENA EREC S34 Formula P7
+
+        A: grid area (m^2)
+        V_x: contour potential (V), V_x < U_E
+        U_E: earth potential rise (V)
+    """
+    if V_x >= U_E:
+        raise ValueError('V_x must be lower than U_E')
+    return sqrt(A/pi)*(1/sin(V_x*pi/(2*U_E)) - 1)
+
+## Permissible touch and step potentials (ENA TS 41-24 Tables 1 and 2)
+
+_TS4124_TIMES = (0.1, 0.15, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0,
+                 1.1, 1.2, 1.3, 1.4, 1.5, 2.0, 3.0, 5.0, 10.0)
+_TS4124_TOUCH = {
+    'bare_feet': (521, 462, 407, 313, 231, 166, 128, 106, 92, 84, 80, 76, 73,
+                  71, 69, 67, 63, 60, 58, 57),
+    'shoes_soil': (2070, 1808, 1570, 1179, 837, 578, 420, 332, 281, 250, 233,
+                   219, 209, 200, 193, 188, 173, 162, 156, 153),
+    'shoes_chippings_75': (2341, 2043, 1773, 1331, 944, 650, 471, 371, 314,
+                           279, 259, 244, 232, 223, 215, 209, 192, 180, 173,
+                           170),
+    'shoes_chippings_150': (2728, 2379, 2064, 1548, 1095, 753, 544, 428, 361,
+                            321, 298, 280, 266, 255, 246, 239, 220, 205, 198,
+                            194),
+    'hand_to_hand': (1114, 968, 836, 639, 484, 368, 276, 221, 191, 172, 161,
+                     152, 146, 141, 137, 134, 125, 119, 115, 114),
+}
+_TS4124_STEP = {
+    'bare_feet': (22753, 19763, 17077, 12715, 8905, 6044, 4290, 3320, 2770,
+                  2434, 2249, 2098, 1992, 1897, 1823, 1771, 1616, 1503, 1442,
+                  1412),
+    'shoes_soil': (inf,)*8 + (21608, 19067, 17571, 16460, 15575, 14839,
+                              14267, 13826, 12629, 11727, 11250, 11012),
+    'shoes_chippings_75': (inf,)*8 + (24906, 21976, 20253, 18971, 17951,
+                                      17103, 16445, 15936, 14557, 13517,
+                                      12967, 12692),
+    'shoes_chippings_150': (inf,)*10 + (24083, 22559, 21347, 20338, 19555,
+                                        18951, 17311, 16074, 15420, 15092),
+}
+
+def _ts4124_lookup(table, t, surface, interpolate):
+    if surface not in table:
+        raise ValueError('surface must be one of ' + ', '.join(table))
+    values = table[surface]
+    times = _TS4124_TIMES
+    if t <= 0:
+        raise ValueError('t must be positive')
+    if t < times[0]:
+        warnings.warn('t = {} s is below the shortest tabulated time ({} s);'
+                      ' the {} s value is returned'.format(t, times[0],
+                                                           times[0]))
+        return float(values[0])
+    if t >= times[-1]:
+        return float(values[-1])
+    i = int(np.searchsorted(times, t, side='right'))  # times[i-1] <= t < times[i]
+    if t == times[i-1]:
+        return float(values[i-1])
+    if interpolate == 'conservative':
+        return float(values[i])  # next longer time, lower limit
+    elif interpolate == 'linear':
+        v0, v1 = values[i-1], values[i]
+        if v0 == inf:
+            return inf
+        return float(v0 + (v1 - v0)*(t - times[i-1])/(times[i] - times[i-1]))
+    raise ValueError("interpolate must be 'conservative' or 'linear'")
+
+def touch_limit_ts4124(t, surface='shoes_chippings_75',
+                       interpolate='conservative'):
+    """ Permissible touch potential (V), ENA TS 41-24 Table 1
+
+        t: fault clearance time (s)
+        surface: 'bare_feet', 'shoes_soil' (shoes on soil or outdoor
+            concrete), 'shoes_chippings_75', 'shoes_chippings_150' (or dry
+            concrete), 'hand_to_hand'
+        interpolate: between tabulated times, 'conservative' returns the
+            value at the next longer tabulated time; 'linear' interpolates
+            linearly. Times of 10 s or more return the >= 10 s value.
+    """
+    return _ts4124_lookup(_TS4124_TOUCH, t, surface, interpolate)
+
+def step_limit_ts4124(t, surface='shoes_chippings_75',
+                      interpolate='conservative'):
+    """ Permissible step potential (V), ENA TS 41-24 Table 2
+
+        t, interpolate: as touch_limit_ts4124
+        surface: 'bare_feet', 'shoes_soil', 'shoes_chippings_75',
+            'shoes_chippings_150'
+
+        Returns math.inf where the table states the limit cannot
+        foreseeably be exceeded (25 kV or greater).
+    """
+    return _ts4124_lookup(_TS4124_STEP, t, surface, interpolate)
 
 ## Fault current functions
 
@@ -244,14 +518,21 @@ def fault_current(Un, c, Z):
     """
     return c*Un/(sqrt(3)*abs(Z))
 
-def max_current_density(rho, t):
-    """ Electrode maximum current density calculation as per IS-3043
-    
+def max_current_density(rho, t, method='IS3043'):
+    """ Electrode maximum current density
+
         rho: resistivity (ohm-m)
-        t: Loading time
+        t: Loading time (s)
+        method: 'IS3043' - 7.57e3/sqrt(rho t) (default)
+                'S34'    - ENA EREC S34 Formula C2, 1e3 sqrt(57.7/(rho t)),
+                           as used for ENA TS 41-24 Table 8 (0.34 % higher)
         return (A/m2)
     """
-    return (7.57e3/sqrt(rho*t))
+    if method == 'IS3043':
+        return 7.57e3/sqrt(rho*t)
+    elif method == 'S34':
+        return 1e3*sqrt(57.7/(rho*t))
+    raise ValueError("method must be 'IS3043' or 'S34'")
 
 def current_ratio(rho, R, C, Un, A, L):
     """ Current ratio by C factor method as per ENA EREC S34
@@ -287,7 +568,7 @@ def rectangle(loc, x_l, y_l):
 ## CALCULATION ELEMENT CLASSES
 
 
-class DescreteElement:
+class DiscreteElement:
     """Base class for all unit elements"""
     
     def __init__(self, loc, rho):
@@ -303,14 +584,14 @@ class DescreteElement:
         pass
 
     
-class DescreteElementCylindrical(DescreteElement):
+class DiscreteElementCylindrical(DiscreteElement):
     """ 1D approximation for cylindrical elememt
         Uses radial current distribution upto critical distance and 
         spherical distribution beyond critical distance
     """
     
     def __init__(self, loc, rho, radius, length):
-        DescreteElement.__init__(self, loc, rho)
+        DiscreteElement.__init__(self, loc, rho)
         self.radius = radius
         self.length = length
         self.crit_d = self.length  # Distance upto which radial current 
@@ -341,7 +622,7 @@ class DescreteElementCylindrical(DescreteElement):
         return coeff
 
 
-class DescreteElementPlate(DescreteElement):
+class DiscreteElementPlate(DiscreteElement):
     """ Circular plate elememt
         Uses equations from the paper:
         Ground impedance of cylindrical metal plate buried in homogeneous earth
@@ -349,7 +630,7 @@ class DescreteElementPlate(DescreteElement):
     """
     
     def __init__(self, loc, rho, area, normal):
-        DescreteElement.__init__(self, loc, rho)
+        DiscreteElement.__init__(self, loc, rho)
         self.area = area
         self.normal = np.array(normal)
         self.radius = sqrt(area/pi)
@@ -375,6 +656,12 @@ class DescreteElementPlate(DescreteElement):
         return coeff
 
 
+# Deprecated misspelled class names, kept for backward compatibility
+DescreteElement = DiscreteElement
+DescreteElementCylindrical = DiscreteElementCylindrical
+DescreteElementPlate = DiscreteElementPlate
+
+
 ## NETWORK ELEMENT CLASSES
 
 
@@ -386,11 +673,23 @@ class NetworkElement:
         self.rho = rho
         self.elements = []
         
-    def descretise(self):
+    def discretise(self):
         self.elements = []
         
-    def get_descrete_elements(self):
+    def get_discrete_elements(self):
         return self.elements
+
+    # Deprecated misspelled names, kept for backward compatibility
+    def descretise(self, *args, **kwargs):
+        warnings.warn('descretise() is deprecated; use discretise()',
+                      DeprecationWarning, stacklevel=2)
+        return self.discretise(*args, **kwargs)
+
+    def get_descrete_elements(self):
+        warnings.warn('get_descrete_elements() is deprecated; use '
+                      'get_discrete_elements()', DeprecationWarning,
+                      stacklevel=2)
+        return self.get_discrete_elements()
         
         
 class NetworkElementPlate(NetworkElement):
@@ -403,8 +702,8 @@ class NetworkElementPlate(NetworkElement):
         self.h_cap = np.array(h_cap) / norm(h_cap)
         self.w_cap = np.cross(self.h_cap, self.n_cap)
         
-    def descretise(self, size):
-        NetworkElement.descretise(self)
+    def discretise(self, size):
+        NetworkElement.discretise(self)
         nw = int(self.w/size/2)
         nh = int(self.h/size/2)
         delta_w = self.w/(2*nw) * self.w_cap
@@ -413,7 +712,7 @@ class NetworkElementPlate(NetworkElement):
         for i in range(-nw, nw):
             for j in range(-nh, nh):
                 loc = (self.loc + delta_w/2 + delta_h/2) + delta_w*i + delta_h*j
-                element = DescreteElementPlate(loc, self.rho, area, self.n_cap)
+                element = DiscreteElementPlate(loc, self.rho, area, self.n_cap)
                 self.elements.append(element)
 
 
@@ -424,8 +723,8 @@ class NetworkElementStrip(NetworkElement):
         self.w = w
         self.loc_end = np.array(loc_end)
         
-    def descretise(self, size):
-        NetworkElement.descretise(self)
+    def discretise(self, size):
+        NetworkElement.discretise(self)
         length = norm(self.loc - self.loc_end)
         n = int(length/size)
         delta = length/n
@@ -434,7 +733,7 @@ class NetworkElementStrip(NetworkElement):
         area = self.w * norm(delta_vec)
         for i in range(0, n):
             loc = (self.loc + delta_vec/2) + delta_vec * i
-            element = DescreteElementPlate(loc, self.rho, area, n_cap)
+            element = DiscreteElementPlate(loc, self.rho, area, n_cap)
             self.elements.append(element)
             
     
@@ -445,8 +744,8 @@ class NetworkElementPipe(NetworkElement):
         self.radius = radius
         self.loc_end = np.array(loc_end)
         
-    def descretise(self, size):
-        NetworkElement.descretise(self)
+    def discretise(self, size):
+        NetworkElement.discretise(self)
         
         def perp_vec(vec): 
             a,b,c = vec
@@ -465,7 +764,7 @@ class NetworkElementPipe(NetworkElement):
         area = 2*pi*self.radius*delta/2  # Plate has two sides so eq area halfed
         for i in range(0, n):
             loc = (self.loc + delta_vec/2) + delta_vec * i
-            element = DescreteElementPlate(loc, self.rho, area, n_cap)
+            element = DiscreteElementPlate(loc, self.rho, area, n_cap)
             self.elements.append(element)
             
             
@@ -485,9 +784,16 @@ class Network:
         self.elements = [[]]
         self.clear_model()
         
+    @property
+    def descrete_elements(self):
+        """ Deprecated alias of discrete_elements """
+        warnings.warn('descrete_elements is deprecated; use discrete_elements',
+                      DeprecationWarning, stacklevel=2)
+        return self.discrete_elements
+
     def clear_model(self):
         """ Clear calculation variables """
-        self.descrete_elements = []
+        self.discrete_elements = []
         self.subnet_sizes = []
         self.A = None
         self.B = None
@@ -575,18 +881,18 @@ class Network:
         if not self.elements[-1]:
             raise Exception('No problem geometry found')
             
-        self.descrete_elements = []
+        self.discrete_elements = []
         self.subnet_sizes = []
         
         # Descretise Geometry
         for subnet in self.elements:
-            subnet_descrete_elements = []
+            subnet_discrete_elements = []
             for element in subnet:
-                element.descretise(desc_size)
-                descrete_elements = element.get_descrete_elements()
-                subnet_descrete_elements += descrete_elements
-            self.descrete_elements += subnet_descrete_elements
-            self.subnet_sizes.append(len(subnet_descrete_elements))
+                element.discretise(desc_size)
+                discrete_elements = element.get_discrete_elements()
+                subnet_discrete_elements += discrete_elements
+            self.discrete_elements += subnet_discrete_elements
+            self.subnet_sizes.append(len(subnet_discrete_elements))
             
     def generate_model(self, desc_size=0.25):
         """Formulate system of equations"""
@@ -596,7 +902,7 @@ class Network:
         
         self.mesh_geometry(desc_size)
         
-        n = len(self.descrete_elements)
+        n = len(self.discrete_elements)
         k = len(self.elements)
         
         #
@@ -633,8 +939,8 @@ class Network:
         self.A = np.zeros((n+k, n+k))
         
         # A1 - P(n x n)
-        for i, element_cur in enumerate(self.descrete_elements):
-            for j, element_rem in enumerate(self.descrete_elements):
+        for i, element_cur in enumerate(self.discrete_elements):
+            for j, element_rem in enumerate(self.discrete_elements):
                 if i == j:  # set diag terms
                     self.A[i,i] = element_cur.pot_coeff_self() \
                                   +  element_cur.pot_coeff(element_cur.loc, 
@@ -658,7 +964,7 @@ class Network:
         
     def generate_model_fast(self, desc_size=0.25):
         """ Formulate system of equations
-            Assume circular plate descretisation for fast calculation 
+            Assume circular plate discretisation for fast calculation 
         """
         
         if not self.elements[-1]:
@@ -666,7 +972,7 @@ class Network:
         
         self.mesh_geometry(desc_size)
         
-        n = len(self.descrete_elements)
+        n = len(self.discrete_elements)
         k = len(self.elements)
         
         #
@@ -707,13 +1013,13 @@ class Network:
         # Form location array
         LOC = np.zeros((n,3))
         LOCm = np.zeros((n,3))
-        for slno, element in enumerate(self.descrete_elements):
+        for slno, element in enumerate(self.discrete_elements):
             mirror_loc = np.copy(element.loc)
             mirror_loc[2] = -mirror_loc[2]
             LOC[slno] = element.loc
             LOCm[slno] = mirror_loc
             
-        for slno, element in enumerate(self.descrete_elements):
+        for slno, element in enumerate(self.discrete_elements):
         
             N = np.repeat(element.normal[np.newaxis, :], n, axis=0)
             a = element.radius
@@ -756,7 +1062,7 @@ class Network:
     def solve_model(self):
         """Solve system of equations"""
         
-        if not self.descrete_elements:
+        if not self.discrete_elements:
             raise Exception('No model generated')
         
         k = len(self.elements)
@@ -792,7 +1098,7 @@ class Network:
             raise Exception('Model not solved')
             
         v = 0
-        for slno, element in enumerate(self.descrete_elements):
+        for slno, element in enumerate(self.discrete_elements):
             coeff = element.pot_coeff(loc) + element.pot_coeff(loc, mirror=True)
             v += coeff * self.I[slno]
         return v
@@ -845,7 +1151,7 @@ class Network:
         VV = np.zeros(XX.shape)
         
         # Calculate distance array
-        for slno, element in enumerate(self.descrete_elements):
+        for slno, element in enumerate(self.discrete_elements):
             (x, y, z) = element.loc
             ones = np.ones(XX.shape[0:2])
             LOCe = np.stack((ones*x, ones*y, ones*z), axis=2)
@@ -1071,8 +1377,8 @@ class Network:
             ground: Display ground
             ground_pot: Plot surface potential
             current_distribution: Plot current distribution
-            normal: Show descrete element normal vectors
-            normal_scale: Descrete element normal vector scale
+            normal: Show discrete element normal vectors
+            normal_scale: Discrete element normal vector scale
             title: Display title
         """
         
@@ -1095,7 +1401,7 @@ class Network:
             cbar = plt.colorbar(contour_plot, pad=0.1)
             # cbar.set_label('Volts', loc='bottom')
             
-        # Plot direction vectors for descrete elements
+        # Plot direction vectors for discrete elements
         if normal:
             X = []
             Y = []
@@ -1103,8 +1409,8 @@ class Network:
             U = []
             V = []
             W = []    
-            for desc_element in self.descrete_elements:
-                if isinstance(desc_element, DescreteElementPlate):
+            for desc_element in self.discrete_elements:
+                if isinstance(desc_element, DiscreteElementPlate):
                     x, y, z = desc_element.loc
                     u, v, w = desc_element.normal
                     X.append(x)
@@ -1126,7 +1432,7 @@ class Network:
             X = []
             Y = []
             Z = []
-            for slno, element in enumerate(self.descrete_elements):
+            for slno, element in enumerate(self.discrete_elements):
                 loc = element.loc
                 X.append(loc[0])
                 Y.append(loc[1])

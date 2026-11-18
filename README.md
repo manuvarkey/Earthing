@@ -9,7 +9,9 @@ A python library for design of earthing networks in electrical substations.
 ## Features
 
 * Earth grid design as per IEEE 80/ ENA_ER_S34
-* Numerical earth network calculations using using boundary descretisation method.
+* Mesh and step voltage for rectangular, L-shaped and irregular grids (IEEE 80).
+* Surface, touch and step potential formulae of ENA EREC S34 (P1-P7) and permissible limits of ENA TS 41-24 and IEEE 80 (50 kg and 70 kg).
+* Numerical earth network calculations using boundary discretisation method.
 * Evaluation of earth resistance of various earth electrode geometries.
 * 3D plotting of electrode geometry used for design.
 * 3D plotting of current density distribution for the earth network.
@@ -27,11 +29,11 @@ A python library for design of earthing networks in electrical substations.
 
 - [User guide](docs/user-guide.md): installation, units, workflows, and examples.
 - [API reference](docs/api-reference.md): exported functions, parameters, return values, and `Network` methods.
-- [Validation](validation/README.md): checks against IEEE Std 80-2000, ENA EREC S34 and ENA TS 41-24 worked examples and tables, with the latest [report](validation/report.md).
+- [Validation](validation/README.md): checks against IEEE Std 80-2000, ENA EREC S34, ENA TS 41-24 and IEEE Std 142 worked examples and tables, with the latest [report](validation/report.md).
 
 ## Usage
 
-Package is available on PyPI for installation ([https://pypi.org/project/earthing](https://pypi.org/project/earthing/)). Use `pip install earthing` to install.
+Package is available on PyPI for installation ([https://pypi.org/project/earthing](https://pypi.org/project/earthing/)). Use `python3 -m pip install earthing` to install.
 
 Program source includes detailed usage instructions for various functions and classes. Alternately project page has ipython notebooks covering typical use cases. 
 

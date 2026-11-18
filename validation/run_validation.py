@@ -4,9 +4,9 @@
 
 Usage (from the repository root):
 
-    python validation/run_validation.py                 # all cases
-    python validation/run_validation.py --skip-numerical
-    python validation/run_validation.py --report validation/report.md
+    python3 validation/run_validation.py                 # all cases
+    python3 validation/run_validation.py --skip-numerical
+    python3 validation/run_validation.py --report validation/report.md
 
 Exit status is 1 if any case fails or raises an error, otherwise 0.
 """

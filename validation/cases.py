@@ -36,7 +36,7 @@ import os
 import sys
 import warnings
 from dataclasses import dataclass
-from math import log, pi, sqrt
+from math import asin, log, pi, sqrt
 from typing import Callable, List, Optional
 
 os.environ.setdefault("MPLBACKEND", "Agg")  # the package imports pyplot
@@ -50,6 +50,7 @@ import earthing as e  # noqa: E402
 IEEE80 = "IEEE Std 80-2000"
 S34 = "ENA EREC S34:2018"
 TS4124 = "ENA TS 41-24:2018"
+IEEE142 = "IEEE Std 142-2007"
 
 CLOSED = "closed-form"
 NUMERICAL = "numerical"
@@ -61,6 +62,9 @@ DELTA = 0.2
 # about 3-4 rod diameters (see validation/README.md, "Discretisation
 # guidance"); 0.1 m (about 6 d for a 16 mm rod) gives about +2 %.
 DELTA_ROD = 0.1
+# Finer rod discretisation (about 3 rod diameters, the minimum-error step) for
+# cases that test other solver features against closed-form references.
+DELTA_ROD_FINE = 0.05
 
 # Tolerances
 RTOL_ROUNDING = 0.01      # published values rounded to 3-4 significant figures
@@ -185,6 +189,44 @@ def s34_k_from_package(rho, A, L_E, L_R, N, S, d, w):
     return (R2 * N / R_R - 1) / alpha
 
 
+def ieee80_em_interior_rods(rho, Lx, Ly, Lr, Nx, Ny, Nr, d, h, Ig):
+    """IEEE 80 Eqs. (80)-(90) for a rectangular grid whose rods are inside
+    the grid only: K_ii from Eq. (82), L_M = L_C + L_R from Eq. (90)."""
+    A = Lx * Ly
+    L_C = Lx * Nx + Ly * Ny
+    L_p = 2 * (Lx + Ly)
+    D = (Lx / (Ny - 1) + Ly / (Nx - 1)) / 2
+    n = (2 * L_C / L_p) * sqrt(L_p / (4 * sqrt(A)))  # n_c = n_d = 1
+    K_ii = 1 / (2 * n) ** (2 / n)
+    K_h = sqrt(1 + h / 1.0)
+    K_m = 1 / (2 * pi) * (log(D ** 2 / (16 * h * d) + (D + 2 * h) ** 2 / (8 * D * d)
+                              - h / (4 * d)) + K_ii / K_h * log(8 / (pi * (2 * n - 1))))
+    K_i = 0.644 + 0.148 * n
+    return rho * Ig * K_m * K_i / (L_C + Lr * Nr)
+
+
+def ieee80_cs_limit(C_s, rho_s, t_s, foot, k):
+    """IEEE 80 Eqs. (29)-(33) with a given C_s: foot = 6 (step) or 1.5
+    (touch); k = 0.116 (50 kg) or 0.157 (70 kg)."""
+    return (1000 + foot * C_s * rho_s) * k / sqrt(t_s)
+
+
+def ieee142_dwight_strip(rho, length, a, b, depth):
+    """IEEE Std 142-2007 Table 4-5, buried horizontal strip (length 2L,
+    section a x b, depth s/2)."""
+    L = length / 2
+    s = 2 * depth
+    return rho / (4 * pi * L) * (log(4 * L / a) + (a ** 2 - pi * a * b) / (2 * (a + b) ** 2)
+                                 + log(4 * L / s) - 1 + s / (2 * L)
+                                 - s ** 2 / (16 * L ** 2) + s ** 4 / (512 * L ** 4))
+
+
+def s34_p6_3_grid(rho, I, R_E, x):
+    """ENA EREC S34 B.3.7 Formula P6.3."""
+    r = rho / (4 * R_E)
+    return rho * I / (2 * pi * r) * asin(r / x)
+
+
 def ts4124_jlimit(rho, t):
     """ENA EREC S34 B.2.2 Formula C2, in A/m^2 (TS 41-24 5.4.6.3 refers to it)."""
     return 1e-3 * sqrt(57.7 / (rho * t)) * 1e6
@@ -269,6 +311,69 @@ def _ieee80_cases() -> List[Case]:
         "e_mesh_step_grid",
         lambda: e.e_mesh_step_grid(400, 63, 84, 10, 13, 10, 38, 0.01, 0.5, 1908)[0],
         595.8, "V", note=km_note))
+
+    # Example 4 (L-shaped grid, 24 perimeter rods), through the general
+    # e_mesh_step: A = 4900 m2, L_C = 1575 m, L_p = 350 m, Lx = 70 m,
+    # Ly = 105 m, D = 7 m. IEEE rounds n = 12.155 to 12.2, Km to 0.76,
+    # Ks = 0.406 to 0.41 and Ki = 2.443 to 2.45.
+    b4 = lambda: e.e_mesh_step(400, 1575, 350, 4900, 70, 105, 7, 7.5, 24,
+                               0.01, 0.5, 1908)
+    cases.append(Case(
+        "IEEE80-B4-Em", IEEE80, "Annex B.4 Step 8, Eqs. (84)-(89), (91), (B.40)",
+        "Mesh voltage: L-shaped grid (70 m x 105 m, A = 4900 m2), 24 rods x 7.5 m",
+        "e_mesh_step", lambda: b4()[0], 761.1, "V", note=km_note))
+    cases.append(Case(
+        "IEEE80-B4-Es", IEEE80, "Annex B.4 Step 8, Eqs. (92)-(94), (B.42)",
+        "Step voltage: L-shaped grid, 24 rods x 7.5 m", "e_mesh_step",
+        lambda: b4()[1], 574.6, "V", rtol=0.015,
+        note=("IEEE rounds Ks = 0.406 to 0.41 (+0.9 %) and Ki = 2.443 to "
+              "2.45 (+0.3 %) before substitution.")))
+    cases.append(Case(
+        "IEEE80-B2-Em-general", IEEE80, "Eqs. (80)-(91)",
+        "e_mesh_step with Example 2 inputs equals e_mesh_step_grid",
+        "e_mesh_step",
+        lambda: e.e_mesh_step(400, 1540, 280, 4900, 70, 70, 7, 7.5, 20,
+                              0.01, 0.5, 1908)[0],
+        e.e_mesh_step_grid(400, 70, 70, 7.5, 11, 11, 20, 0.01, 0.5, 1908)[0],
+        "V", rtol=1e-9))
+
+    # Rods inside the grid only: K_ii from Eq. (82), L_M from Eq. (90).
+    # IEEE 80 has no worked example, so the formula is checked as printed.
+    cases.append(Case(
+        "IEEE80-Eq90-interior-rods", IEEE80, "Eqs. (82), (90)",
+        "Mesh voltage: 70 m x 70 m grid, 9 interior rods x 7.5 m (formula identity)",
+        "e_mesh_step_grid",
+        lambda: e.e_mesh_step_grid(400, 70, 70, 7.5, 11, 11, 9, 0.01, 0.5, 1908,
+                                   rods_on_perimeter=False)[0],
+        ieee80_em_interior_rods(400, 70, 70, 7.5, 11, 11, 9, 0.01, 0.5, 1908),
+        "V", rtol=1e-9))
+
+    # 50 kg body limits, Eqs. (29) and (32). Clause 17 (fence case study):
+    # rho = 60, rho_s = 3000, h_s = 0.076 m, t_s = 0.5 s. IEEE takes
+    # Cs = 0.62 from Figure 11; Eq. (27), used by the package, gives 0.6355.
+    cs50_note = ("IEEE reads Cs = 0.62 from Figure 11; the package uses "
+                 "Eq. (27), Cs = 0.6355, hence about +2 %.")
+    cases.append(Case(
+        "IEEE80-17-Estep50", IEEE80, "Clause 17 fence case study, Eq. (29)",
+        "Tolerable step voltage, 50 kg body", "e_step_50",
+        lambda: e.e_step_50(60, 3000, 0.076, 0.5), 1995, "V", rtol=0.03,
+        note=cs50_note))
+    cases.append(Case(
+        "IEEE80-17-Etouch50", IEEE80, "Clause 17 fence case study, Eq. (32)",
+        "Tolerable touch voltage, 50 kg body", "e_touch_50",
+        lambda: e.e_touch_50(60, 3000, 0.076, 0.5), 622, "V", rtol=0.03,
+        note=cs50_note))
+    cs_b1 = 1 - 0.09 * (1 - 400 / 2500) / (2 * 0.102 + 0.09)
+    cases.append(Case(
+        "IEEE80-Eq29-identity", IEEE80, "Eqs. (27), (29)",
+        "Step limit, 50 kg: Example 1 inputs (formula identity)", "e_step_50",
+        lambda: e.e_step_50(400, 2500, 0.102, 0.5),
+        ieee80_cs_limit(cs_b1, 2500, 0.5, 6, 0.116), "V", rtol=1e-9))
+    cases.append(Case(
+        "IEEE80-Eq32-identity", IEEE80, "Eqs. (27), (32)",
+        "Touch limit, 50 kg: Example 1 inputs (formula identity)", "e_touch_50",
+        lambda: e.e_touch_50(400, 2500, 0.102, 0.5),
+        ieee80_cs_limit(cs_b1, 2500, 0.5, 1.5, 0.116), "V", rtol=1e-9))
 
     # Rod resistance, Eq. (55) with n_R = 1 (the docstring cites IEEE 80).
     cases.append(Case(
@@ -366,6 +471,24 @@ def _s34_cases() -> List[Case]:
         "ohm", rtol=0.002,
         note="0.2 % allows for the package's interpolated k (4.854) vs 4.9."))
 
+    # The same examples with b passed directly, as the worked examples do.
+    b_note = "b = 0.01 m (conductor diameter) passed directly, as in the worked example."
+    for cid, clause, desc, args, ref in [
+        ("S34-6.1.1-RE-b", "6.1.1 (p. 21), Formulae R4-R6",
+         "Grid (L_E = 140 m) + 10 rods, b = 0.01 m",
+         (75, 600, 140, 3.6, 10, 10, 0.016), 1.62),
+        ("S34-6.1.1-RE-rebar-b", "6.1.1 (p. 23), Formulae R4-R6",
+         "Grid + re-bar (L_E = 926 m) + 10 rods, b = 0.01 m",
+         (75, 600, 926, 3.6, 10, 10, 0.016), 1.43),
+        ("S34-6.5.1-RE-b", "6.5.1 (p. 38), Formulae R4-R6",
+         "3 m x 3 m grid (L_E = 12 m) + 4 rods, b = 0.01 m",
+         (50, 9, 12, 2.4, 4, 3, 0.016), 6.57),
+    ]:
+        cases.append(Case(
+            cid, S34, clause, desc, "resistance_grid_with_rods",
+            (lambda args=args: e.resistance_grid_with_rods(*args, None, b=0.01)),
+            ref, "ohm", note=b_note))
+
     # Factor k (Figure B.1), backed out from resistance_grid_with_rods.
     for N, k_ref, src in S34_FIG_B1_K:
         clause = ("Figure B.1 (p. 48); value used in " + src) if src else \
@@ -395,6 +518,20 @@ def _s34_cases() -> List[Case]:
         "Substation 6.57 ohm in parallel with two 20 m electrodes", "resistance_parallel",
         lambda: e.resistance_parallel(6.57, r_eh, r_eh), 1.33, "ohm"))
 
+    # resistance_strip methods (formula identities).
+    cases.append(Case(
+        "S34-R7-strip-method", S34, "B.1.8, Formula R7",
+        "resistance_strip(method='S34'): 20 m x 25 mm tape (d = half-width)",
+        "resistance_strip",
+        lambda: e.resistance_strip(100, 20, 0.5, 0.025, method='S34'),
+        s34_r7_strip(100, 20, 0.0125), "ohm", rtol=1e-9))
+    cases.append(Case(
+        "IEEE142-T4-5-strip-method", IEEE142, "Table 4-5, buried horizontal strip",
+        "resistance_strip(method='IEEE142'): 20 m x 25 mm x 3 mm tape at 0.5 m",
+        "resistance_strip",
+        lambda: e.resistance_strip(100, 20, 0.5, 0.025, method='IEEE142', thickness=0.003),
+        ieee142_dwight_strip(100, 20, 0.025, 0.003, 0.5), "ohm", rtol=1e-9))
+
     # Appendix D.4.1, C-factor method.
     cases.append(Case(
         "S34-6.2.3-IE%", S34, "6.2.3 Table 4 (p. 28), Formula D.4.1",
@@ -420,12 +557,102 @@ def _s34_cases() -> List[Case]:
         lambda: e.max_current_density(50, 3), 620, "A/m2",
         note="Published as 0.62e-3 A/mm2 (2 significant figures)."))
     cases.append(Case(
+        "S34-6.5.5-Jlimit-S34", S34, "6.5.5 (p. 40), Formula C2",
+        "Limiting current density, rho = 50, t = 3 s, method='S34'",
+        "max_current_density",
+        lambda: e.max_current_density(50, 3, method='S34'), 620, "A/m2",
+        note="Published as 0.62e-3 A/mm2 (2 significant figures)."))
+    cases.append(Case(
+        "S34-C2-coefficient-S34", S34, "B.2.2, Formula C2",
+        "Coefficient with method='S34' (formula identity)", "max_current_density",
+        lambda: e.max_current_density(1, 1, method='S34'), 1e3 * sqrt(57.7),
+        "A/m2", rtol=1e-9))
+    cases.append(Case(
         "S34-C2-coefficient", S34, "B.2.2, Formula C2",
         "Coefficient: J * sqrt(rho * t)", "max_current_density",
         lambda: e.max_current_density(1, 1), 1e3 * sqrt(57.7), "A/m2", rtol=None,
         note=("Package uses 7.57e3 (IS 3043); Formula C2 gives "
               "1e3 x sqrt(57.7) = 7.596e3. The package is 0.34 % lower "
               "(conservative).")))
+
+    # Surface potential formulae, Appendix B.3, against worked examples.
+    # Section 6.1 (Substation B): 30 m x 20 m grid with 10 rods, h = 0.6 m,
+    # d = 0.01 m, rho = 75, IE = 1477 A, L_T = 176 m, L_p = 136 m,
+    # D = 15 m, nA = 2, nB = 4.
+    p1 = (75, 1477, 176, 136, 0.6, 0.01, 15, 2, 4)
+    cases.append(Case(
+        "S34-6.1.4-P1", S34, "6.1.4 (p. 25), Formula P1",
+        "External touch potential 1 m from grid edge, Substation B",
+        "e_touch_external", lambda: e.e_touch_external(*p1), 648, "V"))
+    cases.append(Case(
+        "S34-6.1.4-P1-cross-member", S34, "6.1.4 (p. 25), Formula P1",
+        "As S34-6.1.4-P1 with a central cross member (L_T = 206 m, D = 10 m, nA = 3)",
+        "e_touch_external",
+        lambda: e.e_touch_external(75, 1477, 206, 136, 0.6, 0.01, 10, 3, 4),
+        602, "V"))
+    cases.append(Case(
+        "S34-6.1.5-P2", S34, "6.1.5 (p. 26), Formula P2",
+        "Touch potential at a separately earthed fence 2 m from the grid",
+        "e_touch_fence", lambda: e.e_touch_fence(*p1), 169, "V",
+        note=("Reproduced with L_T = 176 m as divisor. Formula P2 as printed "
+              "divides by L_p, which gives 218 V.")))
+    cases.append(Case(
+        "S34-6.1.6-P4", S34, "6.1.6 (p. 26), Formula P4",
+        "Internal touch potential (IEEE 80 mesh voltage), grid + 10 rods",
+        "e_mesh_step_grid",
+        lambda: e.e_mesh_step_grid(75, 30, 20, 3.6, 2, 4, 10, 0.01, 0.6, 1477)[0],
+        657, "V", rtol=None,
+        note=("S34 does not state D for P4. With D = 15 m (as in P1) the "
+              "package gives 689 V (+4.9 %); D = 12.5 m reproduces 657 V.")))
+    cases.append(Case(
+        "S34-6.1.7-P7", S34, "6.1.7 (p. 26), Formula P7",
+        "Distance to the 840 V contour, A = 600 m2, EPR = 2393 V",
+        "contour_distance", lambda: e.contour_distance(600, 840, 2393),
+        12.5, "m"))
+    # Appendix I.5: 3.6 m rod, rho = 75, I = 200 A.
+    for x, ref in ((9, 259), (50, 48)):
+        cases.append(Case(
+            "S34-I.5-P6.2-x{}".format(x), S34, "I.5 (p. 78), Formula P6.2",
+            "Surface potential {} m from a 3.6 m rod, I = 200 A".format(x),
+            "surface_potential_rod",
+            (lambda x=x: e.surface_potential_rod(75, 200, 3.6, x)), ref, "V",
+            atol=0.5,
+            note="Published to the nearest volt."))
+    # Formulae with no worked example: identities and consistency checks.
+    cases.append(Case(
+        "S34-P6.3-identity", S34, "B.3.7, Formula P6.3",
+        "Grid surface potential, R_E = 1.62, I = 1477 A, x = 30 m (formula identity)",
+        "surface_potential_grid",
+        lambda: e.surface_potential_grid(75, 1477, 1.62, 30),
+        s34_p6_3_grid(75, 1477, 1.62, 30), "V", rtol=1e-9))
+    cases.append(Case(
+        "S34-P6.3-at-r-equals-EPR", S34, "B.3.7, Formula P6.3 (x = r)",
+        "Grid surface potential at x = r = rho/(4 R_E) equals the EPR",
+        "surface_potential_grid",
+        lambda: e.surface_potential_grid(75, 1477, 1.62, 75 / (4 * 1.62)),
+        1477 * 1.62, "V", rtol=1e-9))
+    cases.append(Case(
+        "S34-P6.1-identity", S34, "B.3.7, Formula P6.1",
+        "Hemisphere surface potential, rho = 75, I = 200 A, x = 9 m",
+        "surface_potential_hemisphere",
+        lambda: e.surface_potential_hemisphere(75, 200, 9),
+        75 * 200 / (2 * pi * 9), "V", rtol=1e-9))
+    cases.append(Case(
+        "S34-P5-vs-P6.3", S34, "B.3.6, Formula P5 vs P6.3",
+        "Step potential at x = 20 m equals V(20) - V(21) from P6.3",
+        "e_step_external",
+        lambda: e.e_step_external(75, 1477, 1.62, 20),
+        s34_p6_3_grid(75, 1477, 1.62, 20) - s34_p6_3_grid(75, 1477, 1.62, 21),
+        "V", rtol=1e-9))
+    k_fe = 0.5 * log(0.6 / 0.01) - 0.25 * log((5 ** 2 + 0.5 ** 2) ** 2) + 0.25 * log(5 ** 4 + 5 ** 2)
+    cases.append(Case(
+        "S34-P3-identity", S34, "B.3.4, Formula P3",
+        "Fence touch potential with peripheral conductor, S = 5 m (formula identity)",
+        "e_touch_fence_peripheral",
+        lambda: e.e_touch_fence_peripheral(75, 1477, 176, 136, 0.6, 0.01, 5),
+        k_fe * (0.7 + 0.3 * 176 / 136) * 75 * 1477 / 176, "V", rtol=1e-9,
+        note=("No worked example in S34. k_fe has no 1/pi factor as printed, "
+              "unlike k_e; the result is not checked against a published value.")))
 
     return cases
 
@@ -470,6 +697,37 @@ TS4124_T8 = {
 
 def _ts4124_cases() -> List[Case]:
     cases = []
+    # Tables 1 and 2 (p. 20-21), checked where S34 quotes the same limits.
+    for cid, clause, desc, f, ref in [
+        ("TS41-24-T1-0.4s-chippings75", "Table 1 (p. 20); quoted in S34 6.1.4",
+         "Touch limit, 0.4 s, shoes on 75 mm chippings",
+         lambda: e.touch_limit_ts4124(0.4, 'shoes_chippings_75'), 944),
+        ("TS41-24-T1-1s-soil", "Table 1 (p. 20); quoted in S34 I.5",
+         "Touch limit, 1 s, shoes on soil",
+         lambda: e.touch_limit_ts4124(1, 'shoes_soil'), 233),
+        ("TS41-24-T1-0.6s-soil", "Table 1 (p. 20); S34 6.1.7 uses 2 x UTP = 840 V",
+         "Touch limit, 0.6 s, shoes on soil",
+         lambda: e.touch_limit_ts4124(0.6, 'shoes_soil'), 420),
+        ("TS41-24-T1-10s-hand", "Table 1 (p. 20)",
+         "Touch limit, >= 10 s, hand-to-hand (value held beyond 10 s)",
+         lambda: e.touch_limit_ts4124(30, 'hand_to_hand'), 114),
+        ("TS41-24-T1-0.45s-conservative", "Table 1 (p. 20)",
+         "Touch limit at 0.45 s, 75 mm chippings, conservative (0.5 s value)",
+         lambda: e.touch_limit_ts4124(0.45, 'shoes_chippings_75'), 650),
+        ("TS41-24-T1-0.45s-linear", "Table 1 (p. 20)",
+         "Touch limit at 0.45 s, 75 mm chippings, linear interpolation",
+         lambda: e.touch_limit_ts4124(0.45, 'shoes_chippings_75', 'linear'),
+         (944 + 650) / 2),
+        ("TS41-24-T2-1s-bare", "Table 2 (p. 21)",
+         "Step limit, 1 s, bare feet",
+         lambda: e.step_limit_ts4124(1, 'bare_feet'), 2249),
+        ("TS41-24-T2-3s-chippings150", "Table 2 (p. 21)",
+         "Step limit, 3 s, shoes on 150 mm chippings",
+         lambda: e.step_limit_ts4124(3, 'shoes_chippings_150'), 16074),
+    ]:
+        cases.append(Case(cid, TS4124, clause, desc,
+                          "touch_limit_ts4124" if "-T1-" in cid else "step_limit_ts4124",
+                          f, ref, "V", rtol=1e-9))
     for rho, by_time in TS4124_T8.items():
         for t, row in zip((3, 1), by_time):
             for (label, area, unit), ref in zip(TS4124_T8_ELECTRODES, row):
@@ -489,10 +747,33 @@ def _ts4124_cases() -> List[Case]:
 # ---------------------------------------------------------------------------
 
 @functools.lru_cache(maxsize=None)
-def _rod_network(delta):
+def _rod_network(delta, fast=True):
     n = e.Network(75, 1000)
     n.add_rod([0, 0, 0], 0.008, 3.6)
-    n.generate_model_fast(delta)
+    if fast:
+        n.generate_model_fast(delta)
+    else:
+        n.generate_model(delta)
+    n.solve_model()
+    return n
+
+
+@functools.lru_cache(maxsize=None)
+def _rod_network_i200():
+    n = e.Network(75, 200)
+    n.add_rod([0, 0, 0], 0.008, 3.6)
+    n.generate_model_fast(DELTA_ROD_FINE)
+    n.solve_model()
+    return n
+
+
+@functools.lru_cache(maxsize=None)
+def _two_subnet_network():
+    n = e.Network(75, 1000)
+    n.add_rod([0, 0, 0], 0.008, 3.6)
+    n.add_subnet(0)
+    n.add_rod([20, 0, 0], 0.008, 3.6)
+    n.generate_model_fast(DELTA_ROD_FINE)
     n.solve_model()
     return n
 
@@ -544,6 +825,47 @@ def _ieee_grid_network(with_rods, strip_w=IEEE_STRIP_W, delta=DELTA):
     n.generate_model_fast(delta)
     n.solve_model()
     return n
+
+
+# IEEE 80 Example 4 (Figure B.4): L-shaped grid on a 7 m mesh. Vertical arm
+# x = 0-35 m, y = 0-105 m; horizontal arm x = 35-70 m, y = 0-35 m.
+IEEE_B4_RODS = ([(x, 0) for x in (0, 14, 28, 42, 56, 70)] + [(70, 14)]
+                + [(x, 35) for x in (42, 56, 70)]
+                + [(35, y) for y in (42, 56, 70, 84, 98)]
+                + [(x, 105) for x in (0, 14, 28)]
+                + [(0, y) for y in (14, 28, 42, 56, 70, 84)])
+IEEE_B4_CORNERS = ((0, 0), (70, 0), (70, 35), (35, 105), (0, 105))
+
+
+@functools.lru_cache(maxsize=None)
+def _ieee_l_grid_network(delta=DELTA):
+    z = -0.5
+    n = e.Network(400, 1908)
+    for x in range(0, 36, 7):
+        n.add_strip([x, 0, z], [x, 105, z], IEEE_STRIP_W)
+    for x in range(42, 71, 7):
+        n.add_strip([x, 0, z], [x, 35, z], IEEE_STRIP_W)
+    for y in range(0, 36, 7):
+        n.add_strip([0, y, z], [70, y, z], IEEE_STRIP_W)
+    for y in range(42, 106, 7):
+        n.add_strip([0, y, z], [35, y, z], IEEE_STRIP_W)
+    for x, y in IEEE_B4_RODS:
+        n.add_rod([x, y, z], IEEE_ROD_RADIUS, 7.5)
+    n.generate_model_fast(delta)
+    n.solve_model()
+    return n
+
+
+def _ieee_l_mesh_voltage():
+    n = _ieee_l_grid_network()
+    meshes = ((0, 0), (63, 0), (63, 28), (28, 98), (0, 98))
+    return max(float(n.mesh_voltage(e.rectangle(c, 7, 7))[1]) for c in meshes)
+
+
+def _ieee_l_step_voltage():
+    n = _ieee_l_grid_network()
+    return max(float(n.step_voltage(e.rectangle((x - 1, y - 1), 2, 2), mesh_no=20)[1])
+               for x, y in IEEE_B4_CORNERS)
 
 
 @functools.lru_cache(maxsize=None)
@@ -612,6 +934,79 @@ def _numerical_cases() -> List[Case]:
         rtol=None, kind=NUMERICAL,
         note=("Sensitivity to the round-conductor-to-strip equivalence; "
               "compare with NUM-IEEE80-B1-Em.")))
+
+    # IEEE 80 Example 4, L-shaped grid with 24 perimeter rods (Figure B.4).
+    epri4 = ("Reference is the EPRI TR-100622 result quoted in IEEE 80 Annex B.4. "
+             "Rod positions read from Figure B.4. ")
+    cases.append(Case(
+        "NUM-IEEE80-B4-Rg", IEEE80, "Annex B.4 Step 12 (EPRI comparison)",
+        "Network: L-shaped grid, 24 rods x 7.5 m", "Network.get_resistance",
+        lambda: _ieee_l_grid_network().get_resistance()[0], 2.34, "ohm",
+        rtol=RTOL_NUM_RESISTANCE, kind=NUMERICAL, note=epri4 + delta_note))
+    cases.append(Case(
+        "NUM-IEEE80-B4-Em", IEEE80, "Annex B.4 Step 12 (EPRI comparison)",
+        "Network: largest corner-mesh touch voltage, L-shaped grid",
+        "Network.mesh_voltage", _ieee_l_mesh_voltage, 742.9, "V",
+        rtol=RTOL_NUM_VOLTAGE, kind=NUMERICAL,
+        note=epri4 + "Maximum over the five outer corner meshes. " + delta_note))
+    cases.append(Case(
+        "NUM-IEEE80-B4-Es", IEEE80, "Annex B.4 Step 12 (EPRI comparison)",
+        "Network: largest step voltage at the outer corners, L-shaped grid",
+        "Network.step_voltage", _ieee_l_step_voltage, 441.8, "V",
+        rtol=RTOL_NUM_VOLTAGE, kind=NUMERICAL,
+        note=epri4 + "Maximum over the five outer corners. " + delta_note))
+
+    # generate_model (non-fast path) must agree with generate_model_fast.
+    cases.append(Case(
+        "NUM-generate_model-rod", S34, "B.1.2 Formula R1 / 6.1.1",
+        "Network.generate_model: single rod 3.6 m, 16 mm, rho = 75",
+        "Network.generate_model",
+        lambda: _rod_network(DELTA_ROD, fast=False).get_resistance()[0],
+        s34_r1_rod(75, 3.6, 0.016), "ohm",
+        rtol=RTOL_NUM_RESISTANCE, kind=NUMERICAL,
+        note="Discretisation {} m.".format(DELTA_ROD)))
+    cases.append(Case(
+        "NUM-generate_model-vs-fast", S34, "-",
+        "Network.generate_model / generate_model_fast resistance ratio (single rod)",
+        "Network.generate_model",
+        lambda: (_rod_network(DELTA_ROD, fast=False).get_resistance()[0]
+                 / _rod_network(DELTA_ROD).get_resistance()[0]),
+        1.0, "-",
+        rtol=1e-3, kind=NUMERICAL,
+        note="Both paths use the same disc elements; results are rounded to 1 mohm."))
+
+    # get_point_potential against S34 Formula P6.2 (surface potential near a
+    # rod, uniform current density). 3.6 m rod, rho = 75, I = 200 A.
+    for x, tol in ((1, RTOL_NUM_VOLTAGE), (9, RTOL_NUM_RESISTANCE), (50, RTOL_NUM_RESISTANCE)):
+        cases.append(Case(
+            "NUM-point-potential-x{}".format(x), S34, "B.3.7 Formula P6.2",
+            "Network.get_point_potential {} m from a 3.6 m rod, I = 200 A".format(x),
+            "Network.get_point_potential",
+            (lambda x=x: _rod_network_i200().get_point_potential([x, 0, 0])),
+            e.surface_potential_rod(75, 200, 3.6, x), "V",
+            rtol=tol, kind=NUMERICAL,
+            note=("P6.2 assumes uniform current density along the rod, so it "
+                  "is least accurate close to the rod. Discretisation {} m."
+                  ).format(DELTA_ROD_FINE)))
+
+    # Two sub-networks: two 3.6 m rods 20 m apart, current injected into the
+    # first only. The second rod's potential per ampere is the mutual
+    # resistance, IEEE 142 Table 4-5 (two rods, s > L).
+    s_sub = 20.0
+    r12 = 75 / (2 * pi * s_sub) * (1 - 3.6 ** 2 / (3 * s_sub ** 2) + 2 * 3.6 ** 4 / (5 * s_sub ** 4))
+    cases.append(Case(
+        "NUM-subnet-mutual", IEEE142, "Table 4-5, two ground rods, s > L",
+        "Network.add_subnet: potential of an unenergised rod 20 m away, per ampere",
+        "Network.add_subnet", lambda: _two_subnet_network().gpr()[1] / 1000,
+        r12, "ohm", rtol=RTOL_NUM_RESISTANCE, kind=NUMERICAL,
+        note="Mutual term of the two-rod formula. Discretisation {} m.".format(DELTA_ROD_FINE)))
+    cases.append(Case(
+        "NUM-subnet-self", S34, "B.1.2 Formula R1",
+        "Network.add_subnet: energised rod resistance with a second sub-network present",
+        "Network.add_subnet", lambda: _two_subnet_network().gpr()[0] / 1000,
+        s34_r1_rod(75, 3.6, 0.016), "ohm", rtol=RTOL_NUM_RESISTANCE, kind=NUMERICAL,
+        note=("The unenergised rod carries no net current, so the energised "
+              "rod should match Formula R1. Discretisation {} m.").format(DELTA_ROD_FINE)))
 
     # Discretisation sensitivity (informational).
     for delta in (0.4, 0.2, 0.1, 0.05, 0.025):

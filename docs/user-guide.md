@@ -9,7 +9,7 @@ This guide introduces the `earthing` Python package and shows how to use its cal
 The package is published on PyPI:
 
 ```bash
-python -m pip install earthing
+python3 -m pip install earthing
 ```
 
 The package metadata declares Python 3.6 or newer, NumPy 1.22 or newer, and Matplotlib 3.5 or newer.
@@ -73,6 +73,14 @@ e_step = e_step_70(rho, 3000.0, 0.15, 1.0)
 
 print(r_grid, i_fault, e_touch, e_step)
 ```
+
+Other calculations follow the same pattern:
+
+- `e_touch_50` and `e_step_50` give the IEEE 80 limits for a 50 kg body.
+- `touch_limit_ts4124` and `step_limit_ts4124` look up the ENA TS 41-24 permissible potentials by fault clearance time and surface type.
+- `e_mesh_step` handles L-shaped and irregular grids. Pass `rods_on_perimeter=False` when rods are only inside the grid.
+- `e_touch_external`, `e_touch_fence`, `surface_potential_rod`, `contour_distance` and related functions implement the ENA EREC S34 surface potential formulae.
+- `resistance_strip` and `max_current_density` take a `method` argument to choose between IS 3043 (default) and other standards.
 
 The functions return numerical values. The formulas and standard references are summarized in the API reference. Check the source and applicable standard before relying on a result.
 
@@ -193,7 +201,7 @@ The notebooks are useful examples, but review their assumptions and input data b
 - **Solution requested before model generation:** call `generate_model()` before `solve_model()`.
 - **Potential or plotting method reports model not solved:** call `solve_model()` first.
 - **Unexpected or unstable values:** check units, coordinate positions, geometry dimensions, current injections, soil resistivity, and discretisation size. Compare results at more than one discretisation size.
-- **Missing plotting dependency:** install the declared dependencies with `python -m pip install -U numpy matplotlib`.
+- **Missing plotting dependency:** install the declared dependencies with `python3 -m pip install -U numpy matplotlib`.
 
 ## 9. API reference
 
