@@ -120,6 +120,14 @@ print("Ground potential rise (V):", network.gpr())
 
 The example demonstrates the call sequence; it is not a validated design or a recommended grid layout. Refine the discretisation and compare results for convergence before using a model.
 
+Discretisation size sets the accuracy of the result. Each segment is modelled as a flat disc, so the best step depends on conductor size:
+
+- Rods: a step of about 3–4 rod diameters gives minimum error (within 1 % of ENA S34 Formula R1). Smaller steps make the error grow again.
+- Strips: a step of about 4–8 strip widths keeps an isolated strip within about 3 %.
+- Plates: a step of side / 5 or smaller.
+
+Use one step for the whole network, chosen for the most sensitive electrode. Memory grows with the square of the element count. See [Discretisation guidance](../validation/README.md#discretisation-guidance) for the measured error tables.
+
 ### Add individual electrodes
 
 ```python

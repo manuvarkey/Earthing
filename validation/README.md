@@ -69,17 +69,64 @@ Not covered:
 
 - **Closed-form functions: ±1 %**, covering rounding in the published values; intermediate factors such as Cs and Km are rounded to two decimals in IEEE 80. Formula-identity checks use 1e-9.
 - **Factor k (Figure B.1): ±0.05** where the standard states the value, ±0.15 where it was read from the chart.
-- **Numerical solver: ±5 % for resistance, ±10 % for touch and step voltage**, at the 0.2 m discretisation used in the project notebooks.
+- **Numerical solver: ±5 % for resistance, ±10 % for touch and step voltage.** Grid and plate cases use the 0.2 m discretisation from the project notebooks. The single-rod case uses 0.1 m (see Discretisation guidance).
 - **Informational cases** (`INFO`) are reported with their deviation but never pass or fail. They show known inconsistencies or sensitivities.
 
 ## Findings
 
-Latest results: 153 cases, 142 passed, 1 failed (finding 2 below), 10 informational. See `report.md`. The first recorded run (commit `d773f36`) had 152 cases: 139 passed and 3 failed. The fix for finding 1 turned two failures into passes and added one case.
+Latest results: 153 cases, 143 passed, 0 failed, 10 informational. See `report.md`. The first recorded run (commit `d773f36`) had 152 cases: 139 passed and 3 failed. The fix for finding 1 turned two failures into passes and added one case.
 
 1. **Fixed: the factor k in `resistance_grid_with_rods` diverged above 64 rods.** The 5th-order polynomial fitted to Figure B.1 gave k = 9.59 at 68 rods, 10.73 at 72 and 72.9 at 100, where the chart reads 9.07, 9.16 and ends at 72 rods. The package now uses monotone piecewise cubic interpolation of the digitised points, with a point added at 72 rods (9.2). For more than 72 rods it holds k at 9.2 and issues a warning. Case `S34-FigB1-k-N100-beyond-chart` guards this.
-2. **The `Network` solver depends on discretisation size and does not converge.** A single 3.6 m rod comes out 9 % above Formula R1 at Δ = 0.2 m and 24 % above at 0.4 m. The error is smallest near Δ = 0.05 m and grows again below that: +2.5 % at 0.025 m. Each segment is modelled as a disc of equal area, so the effective conductor radius changes with Δ. Grid results at Δ = 0.2 m agree with EPRI to within 0.2 % for resistance and 6 % for mesh voltage.
+2. **The `Network` solver depends on discretisation size and does not converge.** A single 3.6 m rod comes out 9 % above Formula R1 at Δ = 0.2 m and 24 % above at 0.4 m. The error is smallest near Δ = 0.05 m and grows again below that: +2.5 % at 0.025 m. Each segment is modelled as a disc of equal area, so the effective conductor radius changes with Δ. Grid results at Δ = 0.2 m agree with EPRI to within 0.2 % for resistance and 6 % for mesh voltage. The rod case `NUM-rod-vs-S34-R1` now runs at Δ = 0.1 m (+1.9 %). At 0.2 m it failed the ±5 % tolerance. See Discretisation guidance below.
 3. **ENA S34 is inconsistent about the parameter b in Formula R6.** Appendix B defines b = w/π, and the package follows it. Worked examples 6.1.1 and 6.5.1 substitute b = 0.01 m directly. To reproduce the worked examples for a round conductor of diameter d, pass `w = pi * d`. Passing `w = d` gives R_E 5.7 % lower (1.53 Ω instead of 1.62 Ω).
 4. **Mesh voltage depends on how a round conductor is turned into a strip.** With strip width 2d (equivalent radius w/4) the IEEE Example 1 mesh voltage is +5.9 % against EPRI. With the equal-area width π·d/2 it is +12.96 %.
 5. **`max_current_density` uses the IS 3043 coefficient 7.57e3.** ENA S34 Formula C2 implies 1e3·√57.7 = 7.596e3, so the package's limit is 0.34 % lower (conservative). All TS 41-24 Table 8 ratings still agree to within 1 %.
 6. **`e_mesh_step_grid` always uses IEEE 80 Eq. (91) for L_M, with K_ii = 1, whenever rods are present.** That form assumes rods at the corners and along the perimeter. For rods only in the interior, IEEE 80 specifies Eq. (90).
 7. **`Network.generate_model` can raise `ZeroDivisionError` at small discretisation sizes** (seen for a rod at Δ = 0.00625 m). This happens when an evaluation point lies in an element's plane inside its radius. `generate_model_fast` handles the same case through `arctan(inf)`.
+
+## Discretisation guidance
+
+`generate_model_fast` replaces each segment with a flat circular disc of equal area. The error therefore depends on the step Δ relative to the conductor size, not on Δ alone. Refining Δ does not converge to the exact value: below the optimum the error grows again. The sweeps below compare a single electrode with a closed-form reference. Scripts are not kept in the repository; repeat them with `Network.add_rod`, `add_strip` or `add_plate` and the formulas named.
+
+### Rods (`add_rod`)
+
+Reference: ENA S34 Formula R1. Rods of 1.2–7.5 m, diameters 12–25 mm. Deviation in %, by Δ as a multiple of rod diameter d:
+
+| Δ / d | 1 | 2 | 3 | 4 | 6 | 8 | 12 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Deviation | +5.2 to +7.1 | +1.1 to +1.3 | +0.1 to +0.3 | +0.2 to +0.8 | +1.4 to +3.9 | +3.2 to +8.2 | +7.2 to +18.9 |
+
+- Use **Δ ≈ 3–4 d** for minimum error (within 1 %). For a 16 mm rod that is about 0.05–0.065 m.
+- Δ ≤ 6 d keeps the error within about 2 % for rods 2.4 m and longer, and within 4 % for 1.2 m rods.
+- The trend does not depend on rod length. Short, thick rods are the most sensitive to coarse Δ.
+
+### Strips (`add_strip`)
+
+Reference: Dwight formula for a buried horizontal wire (IEEE Std 142-2007 Table 4-5), with equivalent radius a = w/4 and burial depth 0.5 m. Strips of 10–50 m, widths 25–50 mm. Deviation in %, by Δ as a multiple of strip width w:
+
+| Δ / w | 1 | 2 | 3 | 4 | 6 | 8 | 16 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Deviation | −1.0 to −1.4 | −2.3 to −3.0 | −2.0 to −2.7 | −1.4 to −1.8 | +0.4 to +0.8 | +2.4 to +3.4 | +10.1 to +13.9 |
+
+- Use **Δ ≈ 4–8 w** for an isolated strip; the error stays within 3 %. For a 25 mm tape that is about 0.1–0.2 m.
+- The a = w/4 equivalence itself carries a few per cent of uncertainty, so do not read the sign of small deviations as meaningful.
+- Large meshes are less sensitive: the IEEE 80 Annex B grids use Δ = 0.2 m with w = 0.02 m (Δ = 10 w), and resistance still agrees with EPRI to within 0.2 %. Mutual coupling between conductors dominates the result.
+
+### Plates (`add_plate`)
+
+Reference: ENA S34 Formula R2. Horizontal square plates of 0.6–1.2 m side at 0.5–1.0 m depth:
+
+| Δ (m) | 0.4 | 0.2 | 0.1 | 0.05 | 0.025 |
+| --- | --- | --- | --- | --- | --- |
+| Deviation | +0.4 to +1.5 | −1.7 to +0.3 | −2.6 to −1.7 | −2.8 to −2.2 | −2.9 to −2.2 |
+
+- Plates converge: below Δ ≈ side / 10 the result changes by less than 1 %.
+- The −2 to −3 % residual is within the accuracy of R2, which is an approximation itself.
+- Use **Δ ≤ side / 5** (0.2 m for a 1 m plate).
+
+### Mixed networks
+
+- One Δ applies to the whole network. Pick it for the most sensitive electrode, usually the rods (Δ ≈ 3–6 d).
+- Element count, and so memory, grows as (total conductor length / Δ)². The IEEE 80 70 m × 70 m grid needs about 1 GB at Δ = 0.2 m. Halving Δ needs about four times that.
+- When memory limits Δ, accept the rod error in the tables above, or check the result at two Δ values.
+

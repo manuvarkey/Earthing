@@ -57,6 +57,10 @@ NUMERICAL = "numerical"
 # Discretisation used for numerical benchmarks. 0.2 m is the value used in the
 # project's own benchmark notebooks (tests/*.ipynb).
 DELTA = 0.2
+# Discretisation for the single-rod case. Rod error is smallest at a step of
+# about 3-4 rod diameters (see validation/README.md, "Discretisation
+# guidance"); 0.1 m (about 6 d for a 16 mm rod) gives about +2 %.
+DELTA_ROD = 0.1
 
 # Tolerances
 RTOL_ROUNDING = 0.01      # published values rounded to 3-4 significant figures
@@ -563,9 +567,10 @@ def _numerical_cases() -> List[Case]:
     cases.append(Case(
         "NUM-rod-vs-S34-R1", S34, "B.1.2 Formula R1 / 6.1.1",
         "Network: single rod 3.6 m, 16 mm, rho = 75", "Network.get_resistance",
-        lambda: _rod_network(DELTA).get_resistance()[0],
+        lambda: _rod_network(DELTA_ROD).get_resistance()[0],
         s34_r1_rod(75, 3.6, 0.016), "ohm",
-        rtol=RTOL_NUM_RESISTANCE, kind=NUMERICAL, note=delta_note))
+        rtol=RTOL_NUM_RESISTANCE, kind=NUMERICAL,
+        note="Discretisation {} m.".format(DELTA_ROD)))
     cases.append(Case(
         "NUM-plate-vs-S34-R2", S34, "B.1.3 Formula R2",
         "Network: horizontal 1 m x 1 m plate at 0.5 m, rho = 100",
