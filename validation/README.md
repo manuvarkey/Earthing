@@ -1,167 +1,166 @@
-# Validation against standards
+# Validation
 
-This folder checks the `earthing` package against the worked examples, tables and formulas in the reference standards:
+This folder checks the `earthing` package against worked examples, tables and formulas from published earthing standards.
+
+**Current status:** 224 cases, 210 pass, 0 fail, 14 informational. See [report.md](report.md) for every case.
+
+## Quick start
+
+From the repository root, with `numpy` and `matplotlib` installed:
+
+```bash
+python3 validation/run_validation.py                      # all cases (about a minute, about 1 GB RAM)
+python3 validation/run_validation.py --skip-numerical     # formula checks only, under a second
+```
+
+The pytest route runs the same cases; it needs `pytest` installed:
+
+```bash
+python3 -m pytest validation
+python3 -m pytest validation -m "not numerical"
+```
+
+Use `python3`: on many Linux systems `python` is not on the PATH.
+
+Other options for `run_validation.py`:
+
+- `--only TEXT` runs only the cases whose id contains `TEXT`, for example `--only IEEE80-B4`.
+- `--report PATH` also writes a Markdown report. Regenerate the committed report with `--report validation/report.md`.
+- The runner exits with status 1 if any case fails.
+
+## Standards used
 
 | Short name | Document |
 | --- | --- |
 | IEEE 80 | IEEE Std 80-2000, *IEEE Guide for Safety in AC Substation Grounding* |
-| ENA S34 | ENA EREC S34 Issue 2 (2018), *A guide for assessing the rise of earth potential at electrical installations* |
-| ENA TS 41-24 | ENA TS 41-24 Issue 2 (2018), *Guidelines for the design, installation, testing and maintenance of main earthing systems in substations* |
-| IS 3043 | IS 3043:2018, *Code of Practice for Earthing* (Second Revision) |
-| IEEE 142 | IEEE Std 142-2007, *IEEE Recommended Practice for Grounding of Industrial and Commercial Power Systems* (Table 4-5 only) |
+| IEEE 142 | IEEE Std 142-2007, *Grounding of Industrial and Commercial Power Systems* (Table 4-5, Eq. 4.2) |
+| ENA S34 | ENA EREC S34 Issue 2 (2018), *Assessing the rise of earth potential at electrical installations* |
+| ENA TS 41-24 | ENA TS 41-24 Issue 2 (2018), *Main earthing systems in substations* |
+| IS 3043 | IS 3043:2018, *Code of Practice for Earthing* |
 
-Reference values were transcribed from these documents. Each case records its clause, equation and printed page number. The PDFs are not needed to run the checks.
+Reference values were copied from these documents. Each case in `cases.py` records its clause, equation and page. The PDFs are not needed to run the checks.
 
-## Running
+## Kinds of check
 
-From the repository root, with `numpy`, `matplotlib` and (for the pytest route) `pytest` installed. Use `python3`; on many Linux systems `python` is not on the PATH.
+- **Worked example:** the package result is compared with a number printed in a standard.
+- **Formula identity:** the package result is compared with the formula written out again independently in `cases.py`. Used where a standard gives a formula but no worked example.
+- **Solver benchmark:** the numerical `Network` solver is compared with published computer results or closed-form formulas.
+- **Informational:** the deviation is reported, but the case never passes or fails. Used to show differences between standards and sensitivities.
 
-```bash
-python3 validation/run_validation.py
-```
+## What is checked
 
-```bash
-python3 validation/run_validation.py --skip-numerical --report validation/report.md
-```
+### Formula functions
 
-```bash
-python3 -m pytest validation
-```
+| Area | Functions | Checked against |
+| --- | --- | --- |
+| Touch and step limits | `e_step_50`, `e_touch_50`, `e_step_70`, `e_touch_70` | IEEE 80 Annex B.1 and Clause 17; IS 3043 clause 10.3 |
+| | `touch_limit_ts4124`, `step_limit_ts4124` | ENA TS 41-24 Tables 1 and 2, including the values quoted in ENA S34 |
+| Mesh and step voltage | `e_mesh_step_grid`, `e_mesh_step` | IEEE 80 Annex B Examples 1–4, including the L-shaped Example 4; interior-rod equations (82) and (90) |
+| Grid resistance | `resistance_grid` | IEEE 80 Eq. (52), Annex B Examples 1–4 |
+| | `resistance_grid_with_rods`, `resistance_grid_schwarz` | IEEE 80 Eqs. (53)–(56) (default); ENA S34 R4–R6 worked examples 6.1.1 and 6.5.1 (`method='S34'`); S34 Figure B.1 factor k for 4–72 rods |
+| Electrode resistance | `resistance_pipe` | ENA S34 R1 worked examples; IEEE 80 Eq. (55) |
+| | `resistance_plate` | IEEE 142 Table 4-5 (default); ENA S34 R2 and its limits (`method='S34'`) |
+| | `resistance_strip` | IEEE 142 Table 4-5 (default); ENA S34 R7 and IS 3043:2018 clause 14.2.3 (`method='S34'`) |
+| | `resistance_parallel` | ENA S34 R10, worked example 6.5.6 |
+| Surface potentials | `e_touch_external`, `e_touch_fence`, `contour_distance`, `surface_potential_rod` | ENA S34 P1, P2, P7 and P6.2 worked examples |
+| | `e_touch_fence_peripheral`, `e_step_external`, `surface_potential_hemisphere`, `surface_potential_grid` | ENA S34 P3, P5, P6.1 and P6.3, formula identities only |
+| Current | `max_current_density` | ENA S34 C2 (default) and TS 41-24 Table 8 (96 ratings); IS 3043 clause 15.3; IEEE 142 Eq. (4.2) |
+| | `fault_current`, `current_ratio` | IEEE 80 Annex B.1; ENA S34 Appendix D worked examples |
 
-```bash
-python3 -m pytest validation -m "not numerical"
-```
+### Numerical solver (`Network`, `generate_model_fast`)
+
+| Case | Reference | Step | Deviation |
+| --- | --- | --- | --- |
+| IEEE 80 Example 1: grid, no rods | EPRI R = 2.67 Ω, Em = 984.3 V | 0.2 m | R +0.2 %, Em +5.9 % |
+| IEEE 80 Example 2: grid, 20 rods | EPRI R = 2.52 Ω, Em = 756.2 V, Es = 459.1 V | 0.2 m | R 0.0 %, Em +3.2 %, Es −3.3 % |
+| IEEE 80 Example 3: 63 m × 84 m, 38 rods | EPRI R = 2.28 Ω, Em = 519.4 V, Es = 349.7 V | 0.2 m | R +0.2 %, Em +4.7 %, Es +1.9 % |
+| IEEE 80 Example 4: L-shaped, 24 rods | EPRI R = 2.34 Ω, Em = 742.9 V, Es = 441.8 V | 0.2 m | R +0.2 %, Em +4.8 %, Es +0.7 % |
+| Single rod, 3.6 m | ENA S34 R1 | 0.1 m | +1.9 % |
+| Plate, 1 m × 1 m at 0.5 m | ENA S34 R2 / IEEE 142 | 0.2 m | −0.9 % / −1.8 % |
+| Strip, 20 m at 0.5 m | IEEE 142 | 0.2 m | +1.7 % |
+| Surface potential 1 m, 9 m, 50 m from a rod | ENA S34 P6.2 | 0.05 m | −2.6 %, −0.2 %, 0.0 % |
+| Two sub-networks (`add_subnet`) | IEEE 142 two-rod formula | 0.05 m | −0.1 % |
+| `generate_model` (slower path) | ENA S34 R1, and equal to `generate_model_fast` | 0.1 m | +1.9 % |
+
+EPRI values are the EPRI TR-100622 computer results quoted in IEEE 80 Annex B. Rod positions for Examples 3 and 4 were read from Figures B.3 and B.4.
+
+### Not checked
+
+- ENA S34 P3 and P5: S34 has no worked examples, so only the formulas as printed are checked.
+- `e_mesh_step` for irregular grids other than L-shapes: IEEE 80 has no worked example.
+- Solver step voltage for IEEE 80 Example 1: IEEE 80 gives no EPRI value for it.
+
+## Tolerances
+
+| Check | Tolerance |
+| --- | --- |
+| Worked examples | ±1 %, for rounding in the published values |
+| Formula identities | 1e-9 (relative) |
+| Figure B.1 factor k | ±0.05 where S34 states the value, ±0.15 where read from the chart |
+| Solver resistance | ±5 % |
+| Solver touch and step voltage | ±10 % |
+
+A few cases have a wider tolerance, with the reason given in the case note: the IEEE 80 50 kg limits (±3 %, see issue 6 below) and the Example 4 step voltage (±1.5 %, because IEEE rounds Ks and Ki before substituting).
+
+## Issues found in the standards
+
+These are recorded so that results can be traced. No published amendments addressing them were found in November 2026.
+
+1. **ENA S34 R6 defines `b` three ways.** Appendix B prints b = w/π; Appendix A and the worked examples use the conductor's equivalent diameter. With `method='S34'`, `resistance_grid_with_rods` uses w/π unless `b=` is passed; pass it to reproduce the worked examples (`b=0.01` gives 1.62 Ω, 1.43 Ω and 6.57 Ω).
+2. **ENA S34 P2 prints L_p as the divisor, but worked example 6.1.5 uses L_T.** Only L_T reproduces the published 169 V (L_p gives 218 V). The package uses L_T for P2 and P3. Drafts of S34 from 2016 show the divisor as an undefined "L".
+3. **ENA S34 P3 has no 1/π factor**, unlike P1. As printed it gives a higher touch voltage at the fence than at the grid edge, which is implausible. The package implements it as printed; use with caution.
+4. **ENA S34 worked example 6.1.6 does not state the spacing D for P4.** The package gives 689 V against the published 657 V with D = 15 m; D = 12.5 m reproduces 657 V. Informational case.
+5. **IEEE 80 Figure 25(b)** prints k2 = −0.05x + 4.40 for curve C, but the plotted curve rises with x. The package uses the printed equation. Curve C only applies to grids deeper than √A/10, so normal substation grids are not affected.
+6. **IEEE 80 Clause 17** reads Cs = 0.62 from Figure 11, while Eq. (27) gives 0.6355. The package uses Eq. (27), so its 50 kg limits are about 2 % above the published 1995 V and 622 V.
+7. **IS 3043:2018 clause 14.2.1** defines plate area as both sides, but its 1.2 m plate example (ρ/2.75) only works with one side.
+8. **IS 3043:2018 clause 14.2.2** prints ln(2l/d) for a rod, while clause 16.4.1 of the same standard uses ln(4L/d). Probably a typo. The package does not use the IS 3043 rod formula.
+
+## Differences between methods
+
+The package offers more than one formula for some electrodes. Results differ:
+
+| Electrode | Default | Alternative | Difference |
+| --- | --- | --- | --- |
+| Grid with rods (IEEE 80 Example 2) | Schwarz, 2.84 Ω | ENA S34 R4–R6, 2.71 Ω | Schwarz is 13–19 % above EPRI for Examples 2–4; S34 is 8 % above for Example 2 |
+| Strip, 20 m × 25 mm at 0.5 m | IEEE 142, 8.45 Ω | ENA S34 R7, 6.42 Ω | R7 has no depth term; the solver gives 8.59 Ω |
+| Plate, 1 m² at 0.5 m | IEEE 142, 29.30 Ω | ENA S34 R2, 29.05 Ω | Within 1 %; the solver gives 28.79 Ω |
+| Current density, 16 mm rod, 100 Ω·m, 1 s | ENA S34 C2, 38 A/m | IEEE 142 Eq. 4.2, 182 A/m | IEEE 142 is about 4.8 times higher; IS 3043 is 0.3 % below S34 |
+
+## Choosing the solver step size
+
+`generate_model_fast` models each conductor segment as a flat disc. The error depends on the step size Δ relative to the conductor size, and it does not keep falling as Δ gets smaller: below the best step it grows again.
+
+| Electrode | Best step | Error at best step | Error at other steps |
+| --- | --- | --- | --- |
+| Rod | Δ ≈ 3–4 × rod diameter (0.05–0.065 m for a 16 mm rod) | under 1 % | +1 to +4 % at 6 d; +5 to +7 % at 1 d; +7 to +19 % at 12 d |
+| Strip | Δ ≈ 4–8 × strip width (0.1–0.2 m for a 25 mm tape) | within 3 % | +10 to +14 % at 16 w |
+| Plate | Δ ≤ side / 5 (0.2 m for a 1 m plate) | within 2 % | converges below side / 10 |
+
+- One step applies to the whole network. Choose it for the most sensitive electrode, usually the rods.
+- Memory grows with the square of the number of elements. The IEEE 80 70 m × 70 m grid needs about 1 GB at Δ = 0.2 m; halving Δ needs about four times that.
+- Large grids are less sensitive than single electrodes: the Annex B grids at Δ = 0.2 m (10 × strip width) still match EPRI resistance to within 0.2 %.
+- When memory limits the step, check the result at two step sizes.
+
+The full sweep tables (rods of 1.2–7.5 m and 12–25 mm, strips of 10–50 m, plates of 0.6–1.2 m) are printed by:
 
 ```bash
 python3 validation/discretisation_sweep.py
 ```
 
-`run_validation.py` prints a table grouped by standard, lists the failing cases with their source clause, and exits with status 1 if any case fails. `--only TEXT` runs only cases whose id contains `TEXT`. `--report PATH` also writes a Markdown report. The pytest route runs the same cases, apart from the informational ones.
+## Package issues found and fixed
 
-Use `--skip-numerical` or `-m "not numerical"` to leave out the `Network` solver cases. They take about a minute and need roughly 1 GB of RAM.
+- Factor k in `resistance_grid_with_rods` (S34 method) diverged above 64 rods; it is now interpolated from Figure B.1 and held at the chart end value beyond 72 rods.
+- `e_mesh_step_grid` always assumed perimeter rods; `rods_on_perimeter=False` now applies IEEE 80 Eqs. (82) and (90).
+- The single-rod solver case failed at Δ = 0.2 m (+9 %); it now runs at 0.1 m (+1.9 %).
+
+Still open: `Network.generate_model` can raise `ZeroDivisionError` at very small steps (seen at Δ = 0.00625 m). `generate_model_fast` does not have this problem.
 
 ## Files
 
 | File | Purpose |
 | --- | --- |
-| `cases.py` | All validation cases: inputs, reference values, sources and tolerances. Add new cases here. |
+| `cases.py` | All cases: inputs, reference values, sources and tolerances. Add new cases here. |
 | `run_validation.py` | Command-line runner and report writer. |
-| `test_standards.py` | pytest wrapper around the same cases. |
-| `report.md` | Last generated report (regenerate with `--report`). |
-| `discretisation_sweep.py` | Regenerates the tables in Discretisation guidance (under a minute). |
-
-## Coverage
-
-| Function | Checked against |
-| --- | --- |
-| `e_step_70`, `e_touch_70` | IEEE 80 Eqs. (27), (30), (33); Annex B.1 Step 3 |
-| `e_step_50`, `e_touch_50` | IEEE 80 Eqs. (29), (32); Clause 17 fence case study; formula identities; IS 3043 clause 10.3 (no surface layer) |
-| `resistance_grid` | IEEE 80 Eq. (52); Annex B Examples 1–4 |
-| `e_mesh_step_grid`, `e_mesh_step` | IEEE 80 Eqs. (80)–(94); Annex B Examples 1–4 (Em, Es), including the L-shaped Example 4; Eqs. (82) and (90) for interior rods (formula identity); ENA S34 P4 (case study 6.1.6, informational) |
-| `fault_current` | IEEE 80 Annex B.1 Step 2 (3I0 at 115 kV and 13 kV) |
-| `resistance_pipe` | ENA S34 Formula R1 (case studies 6.1.1, 6.5.1); IEEE 80 Eq. (55) with n_R = 1 |
-| `resistance_plate` | Default: IEEE 142 Table 4-5 round plate (formula identity, deep limit), and the `Network` solver; `method='S34'`: ENA S34 Formula R2 as printed, plus its exact surface and deep-burial limits |
-| `resistance_strip` | Default: IEEE 142 Table 4-5 buried strip (formula identities) and the `Network` solver (+1.7 %); `method='S34'`: ENA S34 Formula R7 and IS 3043:2018 clause 14.2.3 (formula identities) |
-| `resistance_grid_schwarz`, `resistance_grid_with_rods` | Default (`'IEEE80'`): IEEE 80 Eqs. (53)–(56) with Figure 25 curves A, B, C (formula identities), grid-only result against Eq. (52) (+3.8 %), Annex B Examples 2–4 against EPRI (informational, +13 % to +19 %). `method='S34'`: ENA S34 Formulae R4–R6 (case studies 6.1.1 with and without re-bar, 6.5.1), with `w = π·d` and with `b` passed directly; factor k against Figure B.1 for 4–72 rods |
-| `resistance_parallel` | ENA S34 Formula R10 / case study 6.5.6 |
-| `current_ratio` | ENA S34 Appendix D.4.1 (case studies 6.2.3 and 6.5.2) |
-| `max_current_density` | ENA S34 Formula C2 (default; case study 6.5.5); IS 3043:2018 clause 15.3 b); IEEE 142 Eq. (4.2) (formula identity); ENA TS 41-24 Table 8 (96 electrode ratings) |
-| `e_touch_external`, `e_touch_fence` | ENA S34 Formulae P1, P2 (case studies 6.1.4, 6.1.5) |
-| `e_touch_fence_peripheral` | ENA S34 Formula P3 as printed (formula identity only) |
-| `e_step_external` | ENA S34 Formula P5, consistency with P6.3 |
-| `surface_potential_*` | ENA S34 Formulae P6.1 and P6.3 (identities); P6.2 against Appendix I.5 (259 V, 48 V) |
-| `contour_distance` | ENA S34 Formula P7 (case study 6.1.7) |
-| `touch_limit_ts4124`, `step_limit_ts4124` | ENA TS 41-24 Tables 1 and 2, including the values quoted in S34 (944 V, 420 V, 233 V); both interpolation modes |
-| `Network` solver | ENA S34 R1 (rod) and R2 (plate); EPRI TR-100622 results quoted in IEEE 80 Annex B for Examples 1–4 (Rg, Em, Es) |
-| `Network.generate_model` | ENA S34 R1, and equality with `generate_model_fast` |
-| `Network.get_point_potential` | ENA S34 P6.2 at 1 m, 9 m and 50 m from a rod |
-| `Network.add_subnet` | IEEE 142 Table 4-5 two-rod formula (mutual resistance); ENA S34 R1 (energised rod) |
-
-Not covered:
-
-- `e_touch_fence_peripheral` (S34 P3) and `e_step_external` (S34 P5): S34 gives no worked examples, so only the formulas as printed are checked.
-- `e_mesh_step` with n_d ≠ 1 (grids that are not square, rectangular or L-shaped): IEEE 80 gives no worked example.
-- `Network` step voltage for IEEE 80 Example 1: IEEE 80 quotes no EPRI step voltage for that example.
-
-## Tolerance policy
-
-- **Closed-form functions: ±1 %**, covering rounding in the published values; intermediate factors such as Cs and Km are rounded to two decimals in IEEE 80. Formula-identity checks use 1e-9.
-- **Factor k (Figure B.1): ±0.05** where the standard states the value, ±0.15 where it was read from the chart.
-- **Numerical solver: ±5 % for resistance, ±10 % for touch and step voltage.** Grid and plate cases use the 0.2 m discretisation from the project notebooks. The single-rod case uses 0.1 m (see Discretisation guidance).
-- **Informational cases** (`INFO`) are reported with their deviation but never pass or fail. They show known inconsistencies or sensitivities.
-
-## Findings
-
-Latest results: see `report.md`. See `report.md`. The first recorded run (commit `d773f36`) had 152 cases: 139 passed and 3 failed. The fix for finding 1 turned two failures into passes and added one case.
-
-1. **Fixed: the factor k in `resistance_grid_with_rods` diverged above 64 rods.** The 5th-order polynomial fitted to Figure B.1 gave k = 9.59 at 68 rods, 10.73 at 72 and 72.9 at 100, where the chart reads 9.07, 9.16 and ends at 72 rods. The package now uses monotone piecewise cubic interpolation of the digitised points, with a point added at 72 rods (9.2). For more than 72 rods it holds k at 9.2 and issues a warning. Case `S34-FigB1-k-N100-beyond-chart` guards this.
-2. **The `Network` solver depends on discretisation size and does not converge.** A single 3.6 m rod comes out 9 % above Formula R1 at Δ = 0.2 m and 24 % above at 0.4 m. The error is smallest near Δ = 0.05 m and grows again below that: +2.5 % at 0.025 m. Each segment is modelled as a disc of equal area, so the effective conductor radius changes with Δ. Grid results at Δ = 0.2 m agree with EPRI to within 0.2 % for resistance and 6 % for mesh voltage. The rod case `NUM-rod-vs-S34-R1` now runs at Δ = 0.1 m (+1.9 %). At 0.2 m it failed the ±5 % tolerance. See Discretisation guidance below.
-3. **ENA S34 is inconsistent about the parameter b in Formula R6.** The document gives three definitions:
-   - Appendix B.1.7 (Formula R6): b = w/π, where w is the tape width. The package uses this by default.
-   - Appendix A (symbols): b is the "equivalent diameter of circular electrode".
-   - Worked examples 6.1.1 and 6.5.1: b is the "equivalent diameter of the circular earth electrode or the width of a tape electrode", and b = 0.01 m (the conductor diameter) is substituted.
-
-   Appendix A and the worked examples agree on an equivalent diameter. Formula P1 defines equivalent diameter as conductor perimeter/π. If w in B.1.7 is read as the conductor perimeter rather than the tape width, b = w/π is the same equivalent diameter, so B.1.7 most likely mislabels w. The package now takes an optional `b` argument. Pass `b = d` for a round conductor of diameter d, or `b = 2(w + t)/π` for a tape of width w and thickness t. With `b = 0.01` the package reproduces all three worked examples (1.62 Ω, 1.43 Ω, 6.57 Ω). The default (b = w/π, with w = tape width) is unchanged for compatibility. Passing `w = d` without `b` gives R_E 5.7 % lower (1.53 Ω instead of 1.62 Ω).
-4. **Mesh voltage depends on how a round conductor is turned into a strip.** With strip width 2d (equivalent radius w/4) the IEEE Example 1 mesh voltage is +5.9 % against EPRI. With the equal-area width π·d/2 it is +12.96 %.
-5. **IS 3043 and ENA S34 differ in the current-density coefficient.** IS 3043 uses 7.57e3; ENA S34 Formula C2 implies 1e3·√57.7 = 7.596e3, 0.34 % higher. The default is now `method='S34'` (Formula C2, as used for TS 41-24 Table 8); `method='IS3043'` gives the IS 3043 value. Both agree with all TS 41-24 Table 8 ratings to within 1 %.
-6. **Fixed: `e_mesh_step_grid` always used IEEE 80 Eq. (91) for L_M, with K_ii = 1, whenever rods were present.** That form assumes rods at the corners and along the perimeter. `rods_on_perimeter=False` now selects K_ii from Eq. (82) and L_M from Eq. (90) for rods inside the grid only. The default is unchanged.
-7. **`Network.generate_model` can raise `ZeroDivisionError` at small discretisation sizes** (seen for a rod at Δ = 0.00625 m). This happens when an evaluation point lies in an element's plane inside its radius. `generate_model_fast` handles the same case through `arctan(inf)`.
-8. **ENA S34 Formula P2 divides by L_p as printed, but worked example 6.1.5 divides by L_T.** With L_T = 176 m the package reproduces the published 169 V; with L_p = 136 m the result would be 218 V. The text also says k_f is "applied in place of k_e in the above formulae", that is, in Formula P1, which divides by L_T. `e_touch_fence` and `e_touch_fence_peripheral` (P3, same structure) use L_T.
-9. **ENA S34 Formula P3 has no 1/π factor in k_fe, unlike k_e in P1.** As printed, k_fe is about 2 for typical inputs, against k_e ≈ 0.95. A fence with an extra peripheral conductor would then see a higher touch potential than the grid edge, which is implausible. The package implements P3 as printed. Treat `e_touch_fence_peripheral` results with caution until P3 is confirmed against another source.
-10. **ENA S34 case study 6.1.6 does not state the spacing D for Formula P4.** With D = 15 m (the value used for P1 in 6.1.4) `e_mesh_step_grid` gives 689 V, +4.9 % on the published 657 V. D = 12.5 m reproduces 657 V. The case is informational.
-11. **IEEE 80 reads C_s from Figure 11 in the Clause 17 fence case study (C_s = 0.62).** The package uses Eq. (27), which gives 0.6355, so the 50 kg limits come out about 2 % higher than the published 1995 V and 622 V. The cases allow ±3 %.
-12. **Strip formulas differ by about 30 %.** For a 20 m × 25 mm tape at 0.5 m in 100 Ω·m soil: IEEE 142 Dwight (now the default) gives 8.45 Ω and the `Network` solver 8.59 Ω (+1.7 %). ENA S34 Formula R7, which is identical to IS 3043:2018 clause 14.2.3, has no burial-depth term and gives 6.42 Ω (−24 %); it is available as `method='S34'`. The old IS 3043:1987 formula (8.81 Ω, the original default) has been removed.
-13. **IS 3043:2018 is inconsistent about plate area (clause 14.2.1).** The formula R = (ρ/4)·√(π/A) defines A as the area of both sides. The worked figure for a 1.2 m × 1.2 m plate, R = ρ/2.75, only follows if A is the area of one side (1.44 m² gives ρ/2.71; 2.88 m² gives ρ/3.83). `resistance_plate` uses ENA S34 Formula R2, not the IS 3043 formula.
-14. **IS 3043:2018 rod formula (clause 14.2.2) prints ln(2l/d).** Clause 16.4.1 of the same standard normalises rod surface potential by ln(4L/d), which matches the IS 3043:1987 rod formula. The 2018 rod formula is probably a typo. The package's `resistance_pipe` uses ENA S34 R1 / IEEE 80, not IS 3043, so it is not affected.
-15. **No published amendments were found** (November 2026 search) for ENA EREC S34 Issue 2, ENA TS 41-24 Issue 2 or IS 3043:2018 that address findings 3 and 8–14. IEEE 80-2000 has been superseded by IEEE 80-2013 (with corrigendum Cor 1-2015, covering Clauses 11 and 17 and Annexes C and H); the 2013 edition is not in the reference set. Public S34 drafts on dcode.org.uk show the history of findings 8 and 9: the October 2016 draft wrote the P2 and P3 divisor as an undefined "L", with a reviewer comment asking for a definition, and already had k_fe without 1/π. In Formula P1 the text uses L for the electrode length being assessed, which supports L_T as the divisor.
-16. **IEEE has no current-density formula comparable to S34 C2.** IEEE 80 clause 12.3 quotes a conservative 200 A/m² for 1 s (Armstrong). IEEE 142 Eq. (4.2) limits current per metre of rod to prevent smoking electrodes; converted to current density it is 3.63×10⁴/√(ρt), about 4.8 times S34 C2 and IS 3043. It is available as `method='IEEE142'`; the default stays S34 C2.
-17. **Plate formulas agree.** For a 1 m² plate at 0.5 m, IEEE 142 Dwight (now the default) gives 29.30 Ω, S34 R2 29.05 Ω and the `Network` solver 28.79 Ω.
-18. **`resistance_grid_with_rods` now defaults to Schwarz's equations (IEEE 80 Eqs. 53–56).** IEEE 80 has no worked example for them. Against the EPRI results of Annex B they read 13 % (Example 2), 15 % (Example 3) and 19 % (Example 4) high; ENA S34 R4–R6 reads +7.6 % on Example 2 (2.71 Ω). Without rods, Schwarz is 3.8 % above Eq. (52), which IEEE 80 describes as practically identical. `method='S34'` keeps the S34 formulae.
-19. **IEEE 80 Figure 25(b) prints k2 = −0.05x + 4.40 for curve C (h = √A/6), but the plotted curve rises with x.** The package uses the printed equation. Curve C applies only to grids deeper than √A/10 (7 m for a 70 m × 70 m grid), so typical substation grids are not affected. Pass `k1`/`k2` to `resistance_grid_schwarz` to override.
-
-## Discretisation guidance
-
-`generate_model_fast` replaces each segment with a flat circular disc of equal area. The error therefore depends on the step Δ relative to the conductor size, not on Δ alone. Refining Δ does not converge to the exact value: below the optimum the error grows again. The sweeps below compare a single electrode with a closed-form reference. Regenerate them with `python3 validation/discretisation_sweep.py`.
-
-### Rods (`add_rod`)
-
-Reference: ENA S34 Formula R1. Rods of 1.2–7.5 m, diameters 12–25 mm. Deviation in %, by Δ as a multiple of rod diameter d:
-
-| Δ / d | 1 | 2 | 3 | 4 | 6 | 8 | 12 |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Deviation | +5.2 to +7.1 | +1.1 to +1.3 | +0.1 to +0.3 | +0.2 to +0.8 | +1.4 to +3.9 | +3.2 to +8.2 | +7.2 to +18.9 |
-
-- Use **Δ ≈ 3–4 d** for minimum error (within 1 %). For a 16 mm rod that is about 0.05–0.065 m.
-- Δ ≤ 6 d keeps the error within about 2 % for rods 2.4 m and longer, and within 4 % for 1.2 m rods.
-- The trend does not depend on rod length. Short, thick rods are the most sensitive to coarse Δ.
-
-### Strips (`add_strip`)
-
-Reference: Dwight formula for a buried horizontal wire (IEEE Std 142-2007 Table 4-5), with equivalent radius a = w/4 and burial depth 0.5 m. Strips of 10–50 m, widths 25–50 mm. Deviation in %, by Δ as a multiple of strip width w:
-
-| Δ / w | 1 | 2 | 3 | 4 | 6 | 8 | 16 |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| Deviation | −1.0 to −1.4 | −2.3 to −3.0 | −2.0 to −2.7 | −1.4 to −1.8 | +0.4 to +0.8 | +2.4 to +3.4 | +10.1 to +13.9 |
-
-- Use **Δ ≈ 4–8 w** for an isolated strip; the error stays within 3 %. For a 25 mm tape that is about 0.1–0.2 m.
-- The a = w/4 equivalence itself carries a few per cent of uncertainty, so do not read the sign of small deviations as meaningful.
-- Large meshes are less sensitive: the IEEE 80 Annex B grids use Δ = 0.2 m with w = 0.02 m (Δ = 10 w), and resistance still agrees with EPRI to within 0.2 %. Mutual coupling between conductors dominates the result.
-
-### Plates (`add_plate`)
-
-Reference: ENA S34 Formula R2. Horizontal square plates of 0.6–1.2 m side at 0.5–1.0 m depth:
-
-| Δ (m) | 0.4 | 0.2 | 0.1 | 0.05 | 0.025 |
-| --- | --- | --- | --- | --- | --- |
-| Deviation | +0.4 to +1.5 | −1.7 to +0.3 | −2.6 to −1.7 | −2.8 to −2.2 | −2.9 to −2.2 |
-
-- Plates converge: below Δ ≈ side / 10 the result changes by less than 1 %.
-- The −2 to −3 % residual is within the accuracy of R2, which is an approximation itself.
-- Use **Δ ≤ side / 5** (0.2 m for a 1 m plate).
-
-### Mixed networks
-
-- One Δ applies to the whole network. Pick it for the most sensitive electrode, usually the rods (Δ ≈ 3–6 d).
-- Element count, and so memory, grows as (total conductor length / Δ)². The IEEE 80 70 m × 70 m grid needs about 1 GB at Δ = 0.2 m. Halving Δ needs about four times that.
-- When memory limits Δ, accept the rod error in the tables above, or check the result at two Δ values.
-
+| `test_standards.py`, `conftest.py` | pytest wrapper around the same cases. |
+| `report.md` | Latest full report. |
+| `discretisation_sweep.py` | Prints the solver step-size tables. |

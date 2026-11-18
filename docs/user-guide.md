@@ -135,7 +135,7 @@ Discretisation size sets the accuracy of the result. Each segment is modelled as
 - Strips: a step of about 4–8 strip widths keeps an isolated strip within about 3 %.
 - Plates: a step of side / 5 or smaller.
 
-Use one step for the whole network, chosen for the most sensitive electrode. Memory grows with the square of the element count. See [Discretisation guidance](../validation/README.md#discretisation-guidance) for the measured error tables.
+Use one step for the whole network, chosen for the most sensitive electrode. Memory grows with the square of the element count. See [Choosing the solver step size](../validation/README.md#choosing-the-solver-step-size) for the measured errors.
 
 ### Add individual electrodes
 

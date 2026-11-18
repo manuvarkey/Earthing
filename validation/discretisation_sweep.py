@@ -2,7 +2,8 @@
 # -*- coding: utf-8 -*-
 """Discretisation error sweeps for ``Network.generate_model_fast``.
 
-Regenerates the tables in validation/README.md, "Discretisation guidance":
+Prints the step-size error tables summarised in validation/README.md,
+"Choosing the solver step size":
 single rods, strips and plates compared with closed-form references.
 
     python3 validation/discretisation_sweep.py

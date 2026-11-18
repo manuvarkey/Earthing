@@ -71,7 +71,7 @@ Recent versions changed some default formulae. Pass `method=` to keep the earlie
 python3 validation/run_validation.py
 ```
 
-See [validation/README.md](validation/README.md) for coverage, tolerances, discretisation guidance and the inconsistencies found in the standards.
+See [validation/README.md](validation/README.md) for coverage, tolerances, solver step-size guidance and the issues found in the standards.
 
 
 ## Dependencies:
