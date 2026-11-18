@@ -82,7 +82,11 @@ def resistance_strip(rho, L, w, t, method='IS3043', thickness=0.0):
         w: depth of burial (m)
         t: width of strip, or 2 x diameter for a round conductor (m)
         method: formula to use
-            'IS3043'  - IS 3043: rho/(2 pi L) ln(2 L^2/(w t)) (default)
+            'IS3043'  - alias of 'IS3043:1987' (default, kept for
+                        compatibility)
+            'IS3043:1987' - IS 3043:1987: rho/(2 pi L) ln(2 L^2/(w t))
+            'IS3043:2018' - IS 3043:2018 clause 14.2.3:
+                        rho/(2 pi L) ln(4 L/t). Ignores w. Same as 'S34'.
             'S34'     - ENA EREC S34 Formula R7 (from BS EN 50522):
                         rho/(2 pi L) ln(2 L/d), d = t/2 (half-width of tape
                         or diameter of round conductor). Ignores w; valid
@@ -92,8 +96,10 @@ def resistance_strip(rho, L, w, t, method='IS3043', thickness=0.0):
                         (thickness < t/8), at depth w.
         thickness: strip thickness (m), used by 'IEEE142' only
     """
-    if method == 'IS3043':
+    if method in ('IS3043', 'IS3043:1987'):
         return rho/(2*pi*L)*log(2*L**2/(w*t))
+    elif method == 'IS3043:2018':
+        return rho/(2*pi*L)*log(4*L/t)
     elif method == 'S34':
         return rho/(2*pi*L)*log(2*L/(t/2))
     elif method == 'IEEE142':
@@ -102,7 +108,8 @@ def resistance_strip(rho, L, w, t, method='IS3043', thickness=0.0):
         return rho/(4*pi*Lh)*(log(4*Lh/a) + (a**2 - pi*a*b)/(2*(a + b)**2)
                               + log(4*Lh/s) - 1 + s/(2*Lh)
                               - s**2/(16*Lh**2) + s**4/(512*Lh**4))
-    raise ValueError("method must be 'IS3043', 'S34' or 'IEEE142'")
+    raise ValueError("method must be 'IS3043', 'IS3043:1987', "
+                     "'IS3043:2018', 'S34' or 'IEEE142'")
         
 def resistance_grid(rho, A, L, h=0.5):
     """ Return grid resistance as per IEEE 80
@@ -523,7 +530,8 @@ def max_current_density(rho, t, method='IS3043'):
 
         rho: resistivity (ohm-m)
         t: Loading time (s)
-        method: 'IS3043' - 7.57e3/sqrt(rho t) (default)
+        method: 'IS3043' - IS 3043:2018 clause 15.3 b),
+                           7.57e3/sqrt(rho t) (default)
                 'S34'    - ENA EREC S34 Formula C2, 1e3 sqrt(57.7/(rho t)),
                            as used for ENA TS 41-24 Table 8 (0.34 % higher)
         return (A/m2)

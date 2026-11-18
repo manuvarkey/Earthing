@@ -29,7 +29,7 @@ A python library for design of earthing networks in electrical substations.
 
 - [User guide](docs/user-guide.md): installation, units, workflows, and examples.
 - [API reference](docs/api-reference.md): exported functions, parameters, return values, and `Network` methods.
-- [Validation](validation/README.md): checks against IEEE Std 80-2000, ENA EREC S34, ENA TS 41-24 and IEEE Std 142 worked examples and tables, with the latest [report](validation/report.md).
+- [Validation](validation/README.md): checks against IEEE Std 80-2000, ENA EREC S34, ENA TS 41-24, IS 3043:2018 and IEEE Std 142 worked examples and tables, with the latest [report](validation/report.md).
 
 ## Usage
 

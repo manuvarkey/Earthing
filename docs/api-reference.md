@@ -51,7 +51,8 @@ Resistance of a straight horizontal strip or round conductor.
 - `w` (`float`): burial depth, m.
 - `t` (`float`): strip width, or twice the diameter for a round conductor, m.
 - `method` (`str`, optional):
-  - `'IS3043'` (default): IS 3043, ρ/(2πL)·ln(2L²/(w·t)).
+  - `'IS3043'` (default) or `'IS3043:1987'`: IS 3043:1987, ρ/(2πL)·ln(2L²/(w·t)). Kept as the default for compatibility.
+  - `'IS3043:2018'`: IS 3043:2018 clause 14.2.3, ρ/(2πL)·ln(4L/t). Ignores `w`. Identical to `'S34'`.
   - `'S34'`: ENA EREC S34 Formula R7, ρ/(2πL)·ln(2L/d) with d = t/2 (half-width of a tape or diameter of a round conductor). Ignores `w`; valid for burial depths of 0.5–0.6 m and L ≤ 60√ρ.
   - `'IEEE142'`: Dwight's formula for a buried horizontal strip, IEEE Std 142-2007 Table 4-5, with width `t` and thickness `thickness` at depth `w`.
 - `thickness` (`float`, optional): strip thickness, m; used by `'IEEE142'` only (should be less than t/8).
@@ -206,7 +207,7 @@ Maximum electrode current density.
 
 - `rho` (`float`): soil resistivity, ohm-m.
 - `t` (`float`): loading time, s.
-- `method` (`str`, optional): `'IS3043'` (default), 7.57×10³/√(ρt); or `'S34'`, ENA EREC S34 Formula C2, 10³·√(57.7/(ρt)). The S34 value is 0.34 % higher and is the one used for ENA TS 41-24 Table 8.
+- `method` (`str`, optional): `'IS3043'` (default), IS 3043:2018 clause 15.3, 7.57×10³/√(ρt); or `'S34'`, ENA EREC S34 Formula C2, 10³·√(57.7/(ρt)). The S34 value is 0.34 % higher and is the one used for ENA TS 41-24 Table 8.
 - Returns: current density, A/m² (`float`).
 
 ### `current_ratio(rho, R, C, Un, A, L)`

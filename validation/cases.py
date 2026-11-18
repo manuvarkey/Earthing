@@ -51,6 +51,7 @@ IEEE80 = "IEEE Std 80-2000"
 S34 = "ENA EREC S34:2018"
 TS4124 = "ENA TS 41-24:2018"
 IEEE142 = "IEEE Std 142-2007"
+IS3043 = "IS 3043:2018"
 
 CLOSED = "closed-form"
 NUMERICAL = "numerical"
@@ -1021,12 +1022,12 @@ def _numerical_cases() -> List[Case]:
     # standards. Compared with S34 Formula R7 and with the solver for context.
     cases.append(Case(
         "INFO-strip-vs-S34-R7", S34, "B.1.8 Formula R7",
-        "resistance_strip (IS 3043): 20 m x 25 mm tape at 0.5 m, rho = 100",
+        "resistance_strip default (IS 3043:1987): 20 m x 25 mm tape at 0.5 m, rho = 100",
         "resistance_strip",
         lambda: e.resistance_strip(100, 20, 0.5, 0.025),
         s34_r7_strip(100, 20, 0.0125), "ohm", rtol=None,
-        note=("IS 3043 is not in the reference set. R7 is a different "
-              "(simplified) formula, so no pass/fail is applied.")))
+        note=("The default is the IS 3043:1987 formula, which includes burial "
+              "depth. R7 (and IS 3043:2018) omit it, so no pass/fail is applied.")))
     cases.append(Case(
         "INFO-strip-vs-Network", S34, "-",
         "Network: same 20 m tape, compared with resistance_strip",
@@ -1038,5 +1039,70 @@ def _numerical_cases() -> List[Case]:
     return cases
 
 
+# ---------------------------------------------------------------------------
+# Closed-form cases: IS 3043:2018
+# ---------------------------------------------------------------------------
+
+def _is3043_cases() -> List[Case]:
+    cases = []
+    # Clause 15.3 b): i = 7.57e3 / sqrt(rho t) A/m2.
+    cases.append(Case(
+        "IS3043-15.3-current-density", IS3043, "15.3 b) (p. 32)",
+        "Maximum current density coefficient: J * sqrt(rho * t) (formula identity)",
+        "max_current_density", lambda: e.max_current_density(1, 1),
+        7.57e3, "A/m2", rtol=1e-9))
+    cases.append(Case(
+        "IS3043-15.3-rho50-t3", IS3043, "15.3 b) (p. 32)",
+        "Maximum current density, rho = 50, t = 3 s (formula identity)",
+        "max_current_density", lambda: e.max_current_density(50, 3),
+        7.57e3 / sqrt(150), "A/m2", rtol=1e-9))
+
+    # Clause 14.2.3: R = 100 rho/(2 pi l) ln(4 l/d), l and d in cm, d = width
+    # of strip or twice the diameter of a round conductor.
+    cases.append(Case(
+        "IS3043-14.2.3-strip", IS3043, "14.2.3 (p. 27)",
+        "Strip: rho = 100, l = 20 m, 25 mm wide, method='IS3043:2018' (formula identity)",
+        "resistance_strip",
+        lambda: e.resistance_strip(100, 20, 0.5, 0.025, method='IS3043:2018'),
+        100 * 100 / (2 * pi * 2000) * log(4 * 2000 / 2.5), "ohm", rtol=1e-9))
+    cases.append(Case(
+        "IS3043-14.2.3-round", IS3043, "14.2.3 (p. 27)",
+        "Round conductor: rho = 100, l = 20 m, 10 mm diameter (d = 2 x 10 mm)",
+        "resistance_strip",
+        lambda: e.resistance_strip(100, 20, 0.5, 0.020, method='IS3043:2018'),
+        100 * 100 / (2 * pi * 2000) * log(4 * 2000 / 2.0), "ohm", rtol=1e-9))
+    cases.append(Case(
+        "IS3043-14.2.3-equals-S34-R7", IS3043, "14.2.3 vs ENA S34 B.1.8 Formula R7",
+        "IS 3043:2018 strip formula is identical to S34 R7 (d = half-width)",
+        "resistance_strip",
+        lambda: e.resistance_strip(100, 20, 0.5, 0.025, method='IS3043:2018'),
+        s34_r7_strip(100, 20, 0.0125), "ohm", rtol=1e-9))
+    cases.append(Case(
+        "IS3043-1987-strip-vs-2018", IS3043, "14.2.3 (p. 27)",
+        "Default method ('IS3043' = 1987 formula) against the 2018 formula",
+        "resistance_strip",
+        lambda: e.resistance_strip(100, 20, 0.5, 0.025),
+        100 * 100 / (2 * pi * 2000) * log(4 * 2000 / 2.5), "ohm", rtol=None,
+        note=("The default uses the IS 3043:1987 formula ln(2 L^2/(w t)), which "
+              "includes burial depth w. IS 3043:2018 prints ln(4 L/d) without "
+              "depth. Pass method='IS3043:2018' for the current edition.")))
+
+    # Clause 10.3: the same limits as IEEE 80; with no surface layer
+    # rho_s = rho and Cs = 1.
+    for cid, f, foot, k in [
+        ("IS3043-10.3-Estep50", e.e_step_50, 6, 0.116),
+        ("IS3043-10.3-Estep70", e.e_step_70, 6, 0.157),
+        ("IS3043-10.3-Etouch50", e.e_touch_50, 1.5, 0.116),
+        ("IS3043-10.3-Etouch70", e.e_touch_70, 1.5, 0.157),
+    ]:
+        cases.append(Case(
+            cid, IS3043, "10.3 (p. 14)",
+            "{}: rho = rho_s = 100 (no surface layer, Cs = 1), t = 0.5 s".format(f.__name__),
+            f.__name__, (lambda f=f: f(100, 100, 0.1, 0.5)),
+            ieee80_cs_limit(1.0, 100, 0.5, foot, k), "V", rtol=1e-9))
+    return cases
+
+
 def all_cases() -> List[Case]:
-    return _ieee80_cases() + _s34_cases() + _ts4124_cases() + _numerical_cases()
+    return (_ieee80_cases() + _s34_cases() + _ts4124_cases() + _is3043_cases()
+            + _numerical_cases())
