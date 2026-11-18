@@ -61,28 +61,28 @@ Use `--skip-numerical` or `-m "not numerical"` to leave out the `Network` solver
 | `fault_current` | IEEE 80 Annex B.1 Step 2 (3I0 at 115 kV and 13 kV) |
 | `resistance_pipe` | ENA S34 Formula R1 (case studies 6.1.1, 6.5.1); IEEE 80 Eq. (55) with n_R = 1 |
 | `resistance_plate` | ENA S34 Formula R2 as printed, plus its exact surface and deep-burial limits |
-| `resistance_strip` | `method='IS3043:2018'`: IS 3043:2018 clause 14.2.3; `method='S34'`: ENA S34 Formula R7; `method='IEEE142'`: IEEE 142 Table 4-5 (formula identities). The default (IS 3043:1987 formula) is informational only. |
+| `resistance_strip` | `method='IS3043:2018'`: IS 3043:2018 clause 14.2.3; `method='S34'`: ENA S34 Formula R7; `method='IEEE142'`: IEEE 142 Table 4-5 (formula identities). The default is `'S34'`. `method='IS3043:1987'` is informational only. |
 | `resistance_grid_with_rods` | ENA S34 Formulae R4–R6 (case studies 6.1.1 with and without re-bar, 6.5.1), with `w = π·d` and with `b` passed directly; factor k against Figure B.1 for 4–72 rods |
 | `resistance_parallel` | ENA S34 Formula R10 / case study 6.5.6 |
 | `current_ratio` | ENA S34 Appendix D.4.1 (case studies 6.2.3 and 6.5.2) |
-| `max_current_density` | IS 3043:2018 clause 15.3 b) (default); ENA S34 Formula C2 (case study 6.5.5), both methods; ENA TS 41-24 Table 8 (96 electrode ratings) |
+| `max_current_density` | ENA S34 Formula C2 (default; case study 6.5.5); IS 3043:2018 clause 15.3 b); ENA TS 41-24 Table 8 (96 electrode ratings) |
 | `e_touch_external`, `e_touch_fence` | ENA S34 Formulae P1, P2 (case studies 6.1.4, 6.1.5) |
 | `e_touch_fence_peripheral` | ENA S34 Formula P3 as printed (formula identity only) |
 | `e_step_external` | ENA S34 Formula P5, consistency with P6.3 |
 | `surface_potential_*` | ENA S34 Formulae P6.1 and P6.3 (identities); P6.2 against Appendix I.5 (259 V, 48 V) |
 | `contour_distance` | ENA S34 Formula P7 (case study 6.1.7) |
 | `touch_limit_ts4124`, `step_limit_ts4124` | ENA TS 41-24 Tables 1 and 2, including the values quoted in S34 (944 V, 420 V, 233 V); both interpolation modes |
-| `Network` solver | ENA S34 R1 (rod) and R2 (plate); EPRI TR-100622 results quoted in IEEE 80 Annex B for Examples 1, 2 and 4 (Rg, Em, Es) |
+| `Network` solver | ENA S34 R1 (rod) and R2 (plate); EPRI TR-100622 results quoted in IEEE 80 Annex B for Examples 1–4 (Rg, Em, Es) |
 | `Network.generate_model` | ENA S34 R1, and equality with `generate_model_fast` |
 | `Network.get_point_potential` | ENA S34 P6.2 at 1 m, 9 m and 50 m from a rod |
 | `Network.add_subnet` | IEEE 142 Table 4-5 two-rod formula (mutual resistance); ENA S34 R1 (energised rod) |
 
 Not covered:
 
-- `resistance_strip` default: it uses the IS 3043:1987 formula, and the 1987 edition is not in the reference set.
+- `resistance_strip(method='IS3043:1987')`: the 1987 edition is not in the reference set.
 - `e_touch_fence_peripheral` (S34 P3) and `e_step_external` (S34 P5): S34 gives no worked examples, so only the formulas as printed are checked.
 - `e_mesh_step` with n_d ≠ 1 (grids that are not square, rectangular or L-shaped): IEEE 80 gives no worked example.
-- `Network` step voltage for IEEE 80 Example 1: IEEE 80 quotes no EPRI step voltage for that example. Example 3 is not modelled.
+- `Network` step voltage for IEEE 80 Example 1: IEEE 80 quotes no EPRI step voltage for that example.
 
 ## Tolerance policy
 
@@ -104,14 +104,14 @@ Latest results: see `report.md`. See `report.md`. The first recorded run (commit
 
    Appendix A and the worked examples agree on an equivalent diameter. Formula P1 defines equivalent diameter as conductor perimeter/π. If w in B.1.7 is read as the conductor perimeter rather than the tape width, b = w/π is the same equivalent diameter, so B.1.7 most likely mislabels w. The package now takes an optional `b` argument. Pass `b = d` for a round conductor of diameter d, or `b = 2(w + t)/π` for a tape of width w and thickness t. With `b = 0.01` the package reproduces all three worked examples (1.62 Ω, 1.43 Ω, 6.57 Ω). The default (b = w/π, with w = tape width) is unchanged for compatibility. Passing `w = d` without `b` gives R_E 5.7 % lower (1.53 Ω instead of 1.62 Ω).
 4. **Mesh voltage depends on how a round conductor is turned into a strip.** With strip width 2d (equivalent radius w/4) the IEEE Example 1 mesh voltage is +5.9 % against EPRI. With the equal-area width π·d/2 it is +12.96 %.
-5. **`max_current_density` uses the IS 3043 coefficient 7.57e3 by default.** ENA S34 Formula C2 implies 1e3·√57.7 = 7.596e3, so the default limit is 0.34 % lower (conservative). All TS 41-24 Table 8 ratings still agree to within 1 %. `method='S34'` selects Formula C2.
+5. **IS 3043 and ENA S34 differ in the current-density coefficient.** IS 3043 uses 7.57e3; ENA S34 Formula C2 implies 1e3·√57.7 = 7.596e3, 0.34 % higher. The default is now `method='S34'` (Formula C2, as used for TS 41-24 Table 8); `method='IS3043'` gives the IS 3043 value. Both agree with all TS 41-24 Table 8 ratings to within 1 %.
 6. **Fixed: `e_mesh_step_grid` always used IEEE 80 Eq. (91) for L_M, with K_ii = 1, whenever rods were present.** That form assumes rods at the corners and along the perimeter. `rods_on_perimeter=False` now selects K_ii from Eq. (82) and L_M from Eq. (90) for rods inside the grid only. The default is unchanged.
 7. **`Network.generate_model` can raise `ZeroDivisionError` at small discretisation sizes** (seen for a rod at Δ = 0.00625 m). This happens when an evaluation point lies in an element's plane inside its radius. `generate_model_fast` handles the same case through `arctan(inf)`.
 8. **ENA S34 Formula P2 divides by L_p as printed, but worked example 6.1.5 divides by L_T.** With L_T = 176 m the package reproduces the published 169 V; with L_p = 136 m the result would be 218 V. The text also says k_f is "applied in place of k_e in the above formulae", that is, in Formula P1, which divides by L_T. `e_touch_fence` and `e_touch_fence_peripheral` (P3, same structure) use L_T.
 9. **ENA S34 Formula P3 has no 1/π factor in k_fe, unlike k_e in P1.** As printed, k_fe is about 2 for typical inputs, against k_e ≈ 0.95. A fence with an extra peripheral conductor would then see a higher touch potential than the grid edge, which is implausible. The package implements P3 as printed. Treat `e_touch_fence_peripheral` results with caution until P3 is confirmed against another source.
 10. **ENA S34 case study 6.1.6 does not state the spacing D for Formula P4.** With D = 15 m (the value used for P1 in 6.1.4) `e_mesh_step_grid` gives 689 V, +4.9 % on the published 657 V. D = 12.5 m reproduces 657 V. The case is informational.
 11. **IEEE 80 reads C_s from Figure 11 in the Clause 17 fence case study (C_s = 0.62).** The package uses Eq. (27), which gives 0.6355, so the 50 kg limits come out about 2 % higher than the published 1995 V and 622 V. The cases allow ±3 %.
-12. **The `resistance_strip` default is the withdrawn IS 3043:1987 formula.** IS 3043:2018 clause 14.2.3 gives R = ρ/(2πL)·ln(4L/d), with d = strip width or twice the diameter, and no burial depth. The package default, ρ/(2πL)·ln(2L²/(w·t)), is the 1987 formula, which includes depth w. For a 20 m × 25 mm tape at 0.5 m in 100 Ω·m soil the default gives 8.81 Ω and the 2018 formula gives 6.42 Ω (−27 %). `method='IS3043:2018'` selects the current formula. It is identical to ENA S34 Formula R7. The default is unchanged for compatibility.
+12. **The former `resistance_strip` default was the withdrawn IS 3043:1987 formula.** IS 3043:2018 clause 14.2.3 gives R = ρ/(2πL)·ln(4L/d), with d = strip width or twice the diameter, and no burial depth. The package default, ρ/(2πL)·ln(2L²/(w·t)), is the 1987 formula, which includes depth w. For a 20 m × 25 mm tape at 0.5 m in 100 Ω·m soil the default gives 8.81 Ω and the 2018 formula gives 6.42 Ω (−27 %). The 2018 formula is identical to ENA S34 Formula R7, which is now the default (`method='S34'`). `method='IS3043:1987'` keeps the old formula. Note that R7 has no depth term: for this tape at 0.5 m the Dwight formula (IEEE 142) gives 8.45 Ω and the `Network` solver 8.59 Ω, both about 32 % above R7.
 13. **IS 3043:2018 is inconsistent about plate area (clause 14.2.1).** The formula R = (ρ/4)·√(π/A) defines A as the area of both sides. The worked figure for a 1.2 m × 1.2 m plate, R = ρ/2.75, only follows if A is the area of one side (1.44 m² gives ρ/2.71; 2.88 m² gives ρ/3.83). `resistance_plate` uses ENA S34 Formula R2, not the IS 3043 formula.
 14. **IS 3043:2018 rod formula (clause 14.2.2) prints ln(2l/d).** Clause 16.4.1 of the same standard normalises rod surface potential by ln(4L/d), which matches the IS 3043:1987 rod formula. The 2018 rod formula is probably a typo. The package's `resistance_pipe` uses ENA S34 R1 / IEEE 80, not IS 3043, so it is not affected.
 15. **No published amendments were found** (November 2026 search) for ENA EREC S34 Issue 2, ENA TS 41-24 Issue 2 or IS 3043:2018 that address findings 3 and 8–14. IEEE 80-2000 has been superseded by IEEE 80-2013 (with corrigendum Cor 1-2015, covering Clauses 11 and 17 and Annexes C and H); the 2013 edition is not in the reference set. Public S34 drafts on dcode.org.uk show the history of findings 8 and 9: the October 2016 draft wrote the P2 and P3 divisor as an undefined "L", with a reviewer comment asking for a definition, and already had k_fe without 1/π. In Formula P1 the text uses L for the electrode length being assessed, which supports L_T as the divisor.

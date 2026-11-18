@@ -74,7 +74,7 @@ def resistance_pipe(rho, L, d):
     """
     return rho/(2*pi*L)*(log(8*L/d) - 1)
 
-def resistance_strip(rho, L, w, t, method='IS3043', thickness=0.0):
+def resistance_strip(rho, L, w, t, method='S34', thickness=0.0):
     """ Resistance of a straight horizontal strip or round conductor
 
         rho: resistivity (ohm-m)
@@ -82,12 +82,11 @@ def resistance_strip(rho, L, w, t, method='IS3043', thickness=0.0):
         w: depth of burial (m)
         t: width of strip, or 2 x diameter for a round conductor (m)
         method: formula to use
-            'IS3043'  - alias of 'IS3043:1987' (default, kept for
-                        compatibility)
+            'IS3043'  - alias of 'IS3043:1987'
             'IS3043:1987' - IS 3043:1987: rho/(2 pi L) ln(2 L^2/(w t))
             'IS3043:2018' - IS 3043:2018 clause 14.2.3:
                         rho/(2 pi L) ln(4 L/t). Ignores w. Same as 'S34'.
-            'S34'     - ENA EREC S34 Formula R7 (from BS EN 50522):
+            'S34'     - ENA EREC S34 Formula R7 (from BS EN 50522), default:
                         rho/(2 pi L) ln(2 L/d), d = t/2 (half-width of tape
                         or diameter of round conductor). Ignores w; valid
                         for burial depth 0.5-0.6 m and L <= 60 sqrt(rho).
@@ -525,15 +524,15 @@ def fault_current(Un, c, Z):
     """
     return c*Un/(sqrt(3)*abs(Z))
 
-def max_current_density(rho, t, method='IS3043'):
+def max_current_density(rho, t, method='S34'):
     """ Electrode maximum current density
 
         rho: resistivity (ohm-m)
         t: Loading time (s)
-        method: 'IS3043' - IS 3043:2018 clause 15.3 b),
-                           7.57e3/sqrt(rho t) (default)
-                'S34'    - ENA EREC S34 Formula C2, 1e3 sqrt(57.7/(rho t)),
-                           as used for ENA TS 41-24 Table 8 (0.34 % higher)
+        method: 'S34'    - ENA EREC S34 Formula C2, 1e3 sqrt(57.7/(rho t)),
+                           as used for ENA TS 41-24 Table 8 (default)
+                'IS3043' - IS 3043:2018 clause 15.3 b),
+                           7.57e3/sqrt(rho t) (0.34 % lower)
         return (A/m2)
     """
     if method == 'IS3043':

@@ -558,23 +558,23 @@ def _s34_cases() -> List[Case]:
         lambda: e.max_current_density(50, 3), 620, "A/m2",
         note="Published as 0.62e-3 A/mm2 (2 significant figures)."))
     cases.append(Case(
-        "S34-6.5.5-Jlimit-S34", S34, "6.5.5 (p. 40), Formula C2",
-        "Limiting current density, rho = 50, t = 3 s, method='S34'",
+        "S34-6.5.5-Jlimit-IS3043", S34, "6.5.5 (p. 40), Formula C2",
+        "Limiting current density, rho = 50, t = 3 s, method='IS3043'",
         "max_current_density",
-        lambda: e.max_current_density(50, 3, method='S34'), 620, "A/m2",
+        lambda: e.max_current_density(50, 3, method='IS3043'), 620, "A/m2",
         note="Published as 0.62e-3 A/mm2 (2 significant figures)."))
     cases.append(Case(
-        "S34-C2-coefficient-S34", S34, "B.2.2, Formula C2",
-        "Coefficient with method='S34' (formula identity)", "max_current_density",
-        lambda: e.max_current_density(1, 1, method='S34'), 1e3 * sqrt(57.7),
-        "A/m2", rtol=1e-9))
-    cases.append(Case(
         "S34-C2-coefficient", S34, "B.2.2, Formula C2",
-        "Coefficient: J * sqrt(rho * t)", "max_current_density",
-        lambda: e.max_current_density(1, 1), 1e3 * sqrt(57.7), "A/m2", rtol=None,
-        note=("Package uses 7.57e3 (IS 3043); Formula C2 gives "
-              "1e3 x sqrt(57.7) = 7.596e3. The package is 0.34 % lower "
-              "(conservative).")))
+        "Coefficient: J * sqrt(rho * t), default method (formula identity)",
+        "max_current_density",
+        lambda: e.max_current_density(1, 1), 1e3 * sqrt(57.7), "A/m2", rtol=1e-9))
+    cases.append(Case(
+        "S34-C2-coefficient-IS3043", S34, "B.2.2, Formula C2",
+        "Coefficient with method='IS3043' against Formula C2", "max_current_density",
+        lambda: e.max_current_density(1, 1, method='IS3043'), 1e3 * sqrt(57.7),
+        "A/m2", rtol=None,
+        note=("IS 3043 uses 7.57e3; Formula C2 gives 1e3 x sqrt(57.7) = "
+              "7.596e3. IS 3043 is 0.34 % lower (conservative).")))
 
     # Surface potential formulae, Appendix B.3, against worked examples.
     # Section 6.1 (Substation B): 30 m x 20 m grid with 10 rods, h = 0.6 m,
@@ -828,6 +828,27 @@ def _ieee_grid_network(with_rods, strip_w=IEEE_STRIP_W, delta=DELTA):
     return n
 
 
+# IEEE 80 Example 3 (Figure B.3): 84 m (x) x 63 m (y) on a 7 m mesh,
+# 10 conductors of 84 m and 13 of 63 m, 38 rods of 10 m. Rod positions read
+# from Figure B.3, by row (y) and column (x).
+IEEE_B3_RODS = [(x, y) for y, xs in (
+    (0, (0, 7, 21, 35, 49, 63, 77, 84)), (7, (0, 14, 28, 42, 56, 70, 84)),
+    (21, (0, 14, 70, 84)), (42, (0, 14, 70, 84)),
+    (56, (0, 14, 28, 42, 56, 70, 84)), (63, (0, 7, 21, 35, 49, 63, 77, 84)),
+) for x in xs]
+
+
+@functools.lru_cache(maxsize=None)
+def _ieee_b3_network(delta=DELTA):
+    n = e.Network(400, 1908)
+    n.add_mesh([0, 0, -0.5], 84, 63, 10, 13, IEEE_STRIP_W)
+    for x, y in IEEE_B3_RODS:
+        n.add_rod([x, y, -0.5], IEEE_ROD_RADIUS, 10)
+    n.generate_model_fast(delta)
+    n.solve_model()
+    return n
+
+
 # IEEE 80 Example 4 (Figure B.4): L-shaped grid on a 7 m mesh. Vertical arm
 # x = 0-35 m, y = 0-105 m; horizontal arm x = 35-70 m, y = 0-35 m.
 IEEE_B4_RODS = ([(x, 0) for x in (0, 14, 28, 42, 56, 70)] + [(70, 14)]
@@ -936,6 +957,27 @@ def _numerical_cases() -> List[Case]:
         note=("Sensitivity to the round-conductor-to-strip equivalence; "
               "compare with NUM-IEEE80-B1-Em.")))
 
+    # IEEE 80 Example 3, 63 m x 84 m grid with 38 rods of 10 m (Figure B.3).
+    # The layout is symmetric, so one corner mesh and one corner suffice.
+    epri3 = ("Reference is the EPRI TR-100622 result quoted in IEEE 80 Annex B.3. "
+             "Rod positions read from Figure B.3. ")
+    cases.append(Case(
+        "NUM-IEEE80-B3-Rg", IEEE80, "Annex B.3 Step 9 (EPRI comparison)",
+        "Network: 63 m x 84 m grid, 38 rods x 10 m", "Network.get_resistance",
+        lambda: _ieee_b3_network().get_resistance()[0], 2.28, "ohm",
+        rtol=RTOL_NUM_RESISTANCE, kind=NUMERICAL, note=epri3 + delta_note))
+    cases.append(Case(
+        "NUM-IEEE80-B3-Em", IEEE80, "Annex B.3 Step 9 (EPRI comparison)",
+        "Network: corner-mesh touch voltage, 63 m x 84 m grid", "Network.mesh_voltage",
+        lambda: float(_ieee_b3_network().mesh_voltage(e.rectangle((0, 0), 7, 7))[1]),
+        519.4, "V", rtol=RTOL_NUM_VOLTAGE, kind=NUMERICAL, note=epri3 + delta_note))
+    cases.append(Case(
+        "NUM-IEEE80-B3-Es", IEEE80, "Annex B.3 Step 9 (EPRI comparison)",
+        "Network: step voltage at grid corner, 63 m x 84 m grid", "Network.step_voltage",
+        lambda: float(_ieee_b3_network().step_voltage(
+            e.rectangle((-1, -1), 2, 2), mesh_no=20)[1]),
+        349.7, "V", rtol=RTOL_NUM_VOLTAGE, kind=NUMERICAL, note=epri3 + delta_note))
+
     # IEEE 80 Example 4, L-shaped grid with 24 perimeter rods (Figure B.4).
     epri4 = ("Reference is the EPRI TR-100622 result quoted in IEEE 80 Annex B.4. "
              "Rod positions read from Figure B.4. ")
@@ -1018,23 +1060,24 @@ def _numerical_cases() -> List[Case]:
             (lambda delta=delta: _rod_network(delta).get_resistance()[0]),
             s34_r1_rod(75, 3.6, 0.016), "ohm", rtol=None, kind=NUMERICAL))
 
-    # resistance_strip cites IS 3043, which is not among the reference
-    # standards. Compared with S34 Formula R7 and with the solver for context.
+    # The IS 3043:1987 strip formula is not in the reference set. Compared
+    # with S34 Formula R7 and with the solver for context.
     cases.append(Case(
         "INFO-strip-vs-S34-R7", S34, "B.1.8 Formula R7",
-        "resistance_strip default (IS 3043:1987): 20 m x 25 mm tape at 0.5 m, rho = 100",
+        "resistance_strip(method='IS3043:1987'): 20 m x 25 mm tape at 0.5 m, rho = 100",
         "resistance_strip",
-        lambda: e.resistance_strip(100, 20, 0.5, 0.025),
+        lambda: e.resistance_strip(100, 20, 0.5, 0.025, method='IS3043:1987'),
         s34_r7_strip(100, 20, 0.0125), "ohm", rtol=None,
-        note=("The default is the IS 3043:1987 formula, which includes burial "
-              "depth. R7 (and IS 3043:2018) omit it, so no pass/fail is applied.")))
+        note=("The IS 3043:1987 formula includes burial depth. R7 (and "
+              "IS 3043:2018) omit it, so no pass/fail is applied.")))
     cases.append(Case(
         "INFO-strip-vs-Network", S34, "-",
         "Network: same 20 m tape, compared with resistance_strip",
         "Network.get_resistance",
         lambda: _strip_network(DELTA).get_resistance()[0],
         e.resistance_strip(100, 20, 0.5, 0.025), "ohm", rtol=None, kind=NUMERICAL,
-        note="Reference here is resistance_strip (IS 3043), not a standard value."))
+        note=("Reference here is resistance_strip default (S34 R7), which "
+              "ignores burial depth; not a check of the solver.")))
 
     return cases
 
@@ -1049,12 +1092,12 @@ def _is3043_cases() -> List[Case]:
     cases.append(Case(
         "IS3043-15.3-current-density", IS3043, "15.3 b) (p. 32)",
         "Maximum current density coefficient: J * sqrt(rho * t) (formula identity)",
-        "max_current_density", lambda: e.max_current_density(1, 1),
+        "max_current_density", lambda: e.max_current_density(1, 1, method='IS3043'),
         7.57e3, "A/m2", rtol=1e-9))
     cases.append(Case(
         "IS3043-15.3-rho50-t3", IS3043, "15.3 b) (p. 32)",
         "Maximum current density, rho = 50, t = 3 s (formula identity)",
-        "max_current_density", lambda: e.max_current_density(50, 3),
+        "max_current_density", lambda: e.max_current_density(50, 3, method='IS3043'),
         7.57e3 / sqrt(150), "A/m2", rtol=1e-9))
 
     # Clause 14.2.3: R = 100 rho/(2 pi l) ln(4 l/d), l and d in cm, d = width
@@ -1079,13 +1122,18 @@ def _is3043_cases() -> List[Case]:
         s34_r7_strip(100, 20, 0.0125), "ohm", rtol=1e-9))
     cases.append(Case(
         "IS3043-1987-strip-vs-2018", IS3043, "14.2.3 (p. 27)",
-        "Default method ('IS3043' = 1987 formula) against the 2018 formula",
+        "method='IS3043:1987' against the 2018 formula",
+        "resistance_strip",
+        lambda: e.resistance_strip(100, 20, 0.5, 0.025, method='IS3043:1987'),
+        100 * 100 / (2 * pi * 2000) * log(4 * 2000 / 2.5), "ohm", rtol=None,
+        note=("The IS 3043:1987 formula ln(2 L^2/(w t)) includes burial depth "
+              "w. IS 3043:2018 prints ln(4 L/d) without depth.")))
+    cases.append(Case(
+        "IS3043-14.2.3-equals-default", IS3043, "14.2.3 (p. 27)",
+        "resistance_strip default (S34 R7) equals the IS 3043:2018 formula",
         "resistance_strip",
         lambda: e.resistance_strip(100, 20, 0.5, 0.025),
-        100 * 100 / (2 * pi * 2000) * log(4 * 2000 / 2.5), "ohm", rtol=None,
-        note=("The default uses the IS 3043:1987 formula ln(2 L^2/(w t)), which "
-              "includes burial depth w. IS 3043:2018 prints ln(4 L/d) without "
-              "depth. Pass method='IS3043:2018' for the current edition.")))
+        100 * 100 / (2 * pi * 2000) * log(4 * 2000 / 2.5), "ohm", rtol=1e-9))
 
     # Clause 10.3: the same limits as IEEE 80; with no surface layer
     # rho_s = rho and Cs = 1.
